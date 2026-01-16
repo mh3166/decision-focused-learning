@@ -134,7 +134,7 @@ class SPOPlusFunc(Function):
         c, w, z = true_cost, true_sol, true_obj
         
         # get batch's current optimal solution value and objective vvalue based on the predicted cost
-        w_hat, z_hat = optmodel(2*c_hat - c, solver_kwargs=solver_kwargs)                            
+        w_hat, z_hat = optmodel(2*c_hat - c, **solver_kwargs)                            
                         
         # calculate loss
         # SPO loss = - min_{w} (2 * c_hat - c)^T w + 2 * c_hat^T w - z = - z_hat + 2 * c_hat^T w - z
@@ -314,12 +314,10 @@ class PGLossFunc(Function):
 
         # solve optimization problems
         # Plus Perturbation Optimization Problem
-        sol_plus, obj_plus = optmodel(cp_plus,                                                  
-                solver_kwargs=solver_kwargs)   
-                
+        sol_plus, obj_plus = optmodel(cp_plus, **solver_kwargs)
+
         # Minus Perturbation Optimization Problem
-        sol_minus, obj_minus = optmodel(cp_minus,                
-                solver_kwargs=solver_kwargs)   
+        sol_minus, obj_minus = optmodel(cp_minus, **solver_kwargs)   
         
         # calculate loss
         loss = (obj_plus - obj_minus) * step_size
@@ -497,10 +495,9 @@ class perturbedFenchelYoungFunc(Function):
         # is solved for a given cost vector sample.
         ptb_c = ptb_c.reshape(-1, noises.shape[2]) 
         
-        # solve optimization problem to obtain optimal sol/obj val from perturbed costs (based on predicted costs), 
+        # solve optimization problem to obtain optimal sol/obj val from perturbed costs (based on predicted costs),
         # where now ptb_c[k, :] is k = i*j example that is the ith perturbed cost sample for the jth batch sample
-        ptb_sols, ptb_obj = optmodel(ptb_c,                                     
-                solver_kwargs=solver_kwargs) 
+        ptb_sols, ptb_obj = optmodel(ptb_c, **solver_kwargs) 
                  
         # reshape back to (n_samples, batch_size, sol_vector_dim) where ptb_sols[i, j, :] is the ith perturbed solution sample for the jth batch sample to get back to original data shape
         ptb_sols = ptb_sols.reshape(n_samples, -1, ptb_sols.shape[1])
@@ -515,8 +512,8 @@ class perturbedFenchelYoungFunc(Function):
         loss = torch.sum((w - exp_sol)**2, axis=1)
         if not minimize:
             loss = -loss
-  
-        loss = torch.FloatTensor(loss)
+
+        loss = torch.as_tensor(loss, dtype=torch.float32, device=pred_cost.device)
         return loss
         
         
