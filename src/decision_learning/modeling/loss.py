@@ -4,6 +4,7 @@ from torch.autograd import Function
 from torch.utils.data import Dataset
 import numpy as np
 from decision_learning.utils import handle_solver
+from decision_learning.modeling.perturbed import PerturbedOpt
 
 # -------------------------------------------------------------------------
 # SPO Plus (Smart Predict and Optimize Plus) Loss
@@ -29,8 +30,14 @@ class SPOPlus(nn.Module):
 
     def __init__(self, 
                 optmodel: callable, 
-                reduction: str="mean", 
-                minimize: bool=True):
+                smoothing: bool=False,
+                mc_sample_size: int = 1,
+                sigma: float = 1,
+                antithetic: bool=False,
+                control_variate: bool=False,
+                seed: int=42,
+                minimize: bool=True,
+                reduction: str="mean"):
         """
         Args:
             optmodel (callable): a function/class that solves an optimization problem using pred_cost. For every batch of data, we use
@@ -48,10 +55,18 @@ class SPOPlus(nn.Module):
         """
         super(SPOPlus, self).__init__()        
         self.spop = SPOPlusFunc()
+        self.perturbedfunc = PerturbedOpt()
         self.reduction = reduction
         self.minimize = minimize
-        self.optmodel = optmodel        
-        
+        self.smoothing = smoothing
+        self.control_variate = control_variate
+        self.antithetic = antithetic
+        self.s = mc_sample_size
+        self.sigma = sigma
+        self.optmodel = optmodel      
+        self.seed = seed
+
+
 
     def forward(self, 
             pred_cost: torch.tensor,             
@@ -67,15 +82,26 @@ class SPOPlus(nn.Module):
             true_cost (torch.tensor): a batch of true values of the cost
             true_sol (torch.tensor): a batch of true optimal solutions
             true_obj (torch.tensor): a batch of true optimal objective values            
-        """        
-        loss = self.spop.apply(pred_cost, 
-                            true_cost, 
-                            true_sol, 
-                            true_obj, 
-                            self.optmodel, 
-                            self.minimize,                             
-                            solver_kwargs
-                        )
+        """
+        if self.smoothing:
+            spop_args = (true_cost, true_sol, true_obj, self.optmodel, self.minimize, solver_kwargs)
+            loss = self.perturbedfunc.apply(pred_cost, 
+                                            spop_args, 
+                                            self.spop, 
+                                            self.sigma, 
+                                            self.s, 
+                                            self.antithetic, 
+                                            self.control_variate, 
+                                            self.seed)
+        else:        
+            loss = self.spop.apply(pred_cost, 
+                                true_cost, 
+                                true_sol, 
+                                true_obj, 
+                                self.optmodel, 
+                                self.minimize,                             
+                                solver_kwargs
+                            )
         
         # reduction
         if self.reduction == "mean":
