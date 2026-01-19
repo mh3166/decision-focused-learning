@@ -70,16 +70,16 @@ class PerturbedOpt(Function):
         X_rep = X.repeat_interleave(s, dim=0)  # (n*k, d)
 
         # Draw base noise
-        noise = sigma * torch.randn(
+        noise = torch.randn(
             (n * s, d),
             device=X.device,
             dtype=X.dtype,
             generator=generator,
         )
-        pos_perturbation = X_rep + noise
+        pos_perturbation = X_rep + sigma*noise
 
         if antithetic:
-            neg_perturbation = X_rep - noise
+            neg_perturbation = X_rep - sigma*noise
         else:
             neg_perturbation = X_rep
 
