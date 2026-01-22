@@ -1,5 +1,6 @@
 from torch import nn
 import torch
+import copy
 from torch.autograd import Function
 from torch.utils.data import Dataset
 import numpy as np
@@ -661,7 +662,177 @@ class CosineSurrogateDotProdVecMag(nn.Module):
        
         return loss
     
+
+# -------------------------------------------------------------------------
+# Perturbation Gradient (PG) DCA Loss
+# -------------------------------------------------------------------------
+
+class PG_DCA_Loss(nn.Module):
+    """
+    PG(f_theta(w); c, h, theta0) =
+      ( <f_theta(w), x(f_theta0(w))> - <f_theta(w) - h c, x(f_theta(w) - h c)> ) / h
+
+    - pred_cost = f_theta(w) is passed in (computed outside).
+    - model is passed in so we can snapshot it periodically as the fixed model0.
+    - w is passed in so we can compute f_theta0(w) using the saved model0.
+    """
+    def __init__(self, optmodel, 
+                    h: float,
+                    reduction: str="mean", 
+                    minimize: bool=True,
+                    update_every: int = 10, 
+                    model0: nn.Module = None):
+        super().__init__()
+        self.optmodel = optmodel
+        self.h = float(h)
+        self.reduction = reduction
+        self.minimize = minimize
+        self.update_every = int(update_every)
+
+        self.model0 = model0  # frozen snapshot (created lazily)
+        self.register_buffer("_step", torch.tensor(0, dtype=torch.long))
+
+    @torch.no_grad()
+    def _refresh_model0(self, model: nn.Module):
+        if self.model0 is None:
+            self.model0 = copy.deepcopy(model)
+            for p in self.model0.parameters():
+                p.requires_grad_(False)
+        else:
+            self.model0.load_state_dict(model.state_dict())
+        self.model0.eval()
+
+    def forward(
+        self,
+        pred_cost: torch.Tensor,   # f_theta(w) computed outside
+        *,
+        X: torch.Tensor,           # inputs to model (needed for model0(X))
+        true_cost: torch.Tensor,   # observed cost vectors y used for the PG loss perturbation
+        pred_model: nn.Module,     # live model (for snapshot updates)
+        solver_kwargs: dict = {},  # dictionary of arguments to pass to the optimization sovler. 
+    ):
+
+        t = pred_cost
+        y = true_cost
+        h = self.h
+        t_minus = t - h * y
+
+        # ----------------------------------------------------
+        # Update / initialize fixed model (theta0)
+        # ----------------------------------------------------
+        self._step += 1
+        if self.model0 is None or (
+            self.update_every > 0
+            and int(self._step.item()) % self.update_every == 0
+        ):
+            with torch.no_grad():
+                self._refresh_model0(pred_model)
+
+        # ----------------------------------------------------
+        # Compute reference term using frozen model and new model
+        # ----------------------------------------------------
+        with torch.no_grad():
+            t0 = self.model0(X)
+            x_t0, obj_t0 = self.optmodel(t0, **solver_kwargs)
+            x_t0, obj_t0 = x_t0.detach(), obj_t0.detach()
+            x_t_minus, obj_t_minus = self.optmodel(t_minus, **solver_kwargs)
+            x_t_minus, obj_t_minus = x_t_minus.detach(), obj_t_minus.detach()
+
+        term1 = torch.sum(t * x_t0, axis = 1)
+
+        # Live term: gradients flow through t and through x_fn(t-hc) if x_fn supports autograd
+        term2 = torch.sum(t_minus * x_t_minus, axis = 1)
+
+        loss = (term1 - term2) / h
         
+        # reduction
+        if self.reduction == "mean":
+            loss = torch.mean(loss)
+        elif self.reduction == "sum":
+            loss = torch.sum(loss)
+        elif self.reduction == "none":
+            loss = loss
+        else:
+            raise ValueError("No reduction '{}'.".format(self.reduction))
+        return loss
+    
+    
+class VFunc(Function):
+    """
+    A autograd function for Perturbation Gradient (PG) Loss.
+    """
+
+    @staticmethod
+    def forward(ctx, 
+            cost: torch.tensor, 
+            optmodel: callable,
+            minimize: bool = True,            
+            solver_kwargs: dict = {}):            
+        """
+        Forward pass for PG Loss
+
+        Args:
+            pred_cost (torch.tensor): a batch of predicted values of the cost
+            true_cost (torch.tensor): a batch of true values of the cost
+            h (float): perturbation size/finite difference step size for zeroth order gradient approximation
+            finite_diff_sch (str, optional): Specify type of finite-difference scheme:
+                                            - Backward Differencing/PGB ('B')
+                                            - Central Differencing/PGC ('C')
+                                            - Forward Differencing/PGF ('F')
+            optmodel (callable): a function/class that solves an optimization problem using pred_cost. For every batch of data, we use
+                optmodel to solve the optimization problem using the predicted cost to get the optimal solution and objective value.
+                It must take in:                                 
+                    - pred_cost (torch.tensor): predicted coefficients/parameters for optimization model
+                    - solver_kwargs (dict): a dictionary of additional arrays of data that the solver
+                It must also:
+                    - detach tensors if necessary
+                    - loop or batch data solve 
+                In practice, the user should wrap their own optmodel in the decision_learning.utils.handle_solver function so that
+                these are all taken care of.
+            minimize (bool): whether the optimization problem is minimization or maximization         
+            solver_kwargs (dict): a dictionary of additional arrays of data that the solver
+            
+            
+        Returns:
+            torch.tensor: PG loss
+        """        
+        # detach (stops gradient tracking since we will compute custom gradient) and move to cpu. Do this since
+        # generally the optmodel is probably cpu based
+        c = cost 
+
+        # solve optimization problems
+        # Plus Perturbation Optimization Problem
+        sol, obj = optmodel(c, **solver_kwargs)
+
+        
+        # calculate loss
+        loss = obj
+        if not minimize:
+            loss = - loss
+                
+        # save solutions and objects needed for backwards pass to compute gradients
+        ctx.save_for_backward(sol)        
+        ctx.minimize = minimize
+        return loss
+
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        """
+        Backward pass for PG Loss
+        """
+        sol = ctx.saved_tensors
+
+        # below, need to move (sol_plus - sol_minus) to the same device as grad_output since sol_plus and sol_minus
+        # are on cpu and it is possible that grad_output is on a different device
+        grad = (sol).to(grad_output.device)
+        if not ctx.minimize: # maximization problem case
+            grad = - grad
+        
+        return grad_output * grad, None, None, None, None, None, None, None
+    
+
+
 # -------------------------------------------------------------------------
 # Existing Loss Function Mapping
 # -------------------------------------------------------------------------

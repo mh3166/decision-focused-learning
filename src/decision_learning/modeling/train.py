@@ -177,7 +177,7 @@ def train(pred_model: nn.Module,
     
     
     # ------------------------- TRAINING LOOP -------------------------
-    for epoch in range(num_epochs):
+    for epoch in tqdm(range(num_epochs)):
         
         # ------------------------- TRAINING -------------------------
         # THIS SECTION SHOULD NOT NEED TO BE MODIFIED - CUSTOM BEHAVIOR SHOULD BE SPECIFIED IN THE loss_fn FUNCTION
@@ -193,6 +193,7 @@ def train(pred_model: nn.Module,
             
             # forward pass
             pred = pred_model(batch['X'])
+            batch['pred_model'] = pred_model
             
             # -------- backwards pass --------
             # calculate loss. Since we assume loss_fn will be highly customized in terms of its inputs/function signature

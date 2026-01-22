@@ -94,7 +94,8 @@ class PerturbedOpt(Function):
            	s: int = 1,
             antithetic: bool = False,
             control_variate: bool = False,
-            seed: int = 42):
+            seed: int = 42,
+            training: bool = True):
         """
         Forward pass for SPO+
 
@@ -117,6 +118,7 @@ class PerturbedOpt(Function):
         Returns:
             torch.tensor: SPO+ loss
         """  
+
         batch_size = pred_cost.shape[0]
 
         # Sets up local random number generator and sets the seed (for reproduceability) 
@@ -143,16 +145,17 @@ class PerturbedOpt(Function):
         # Groups the Monte Carlo draws for each sample in the batch and computes the average loss 
         loss = loss_out.view(batch_size, s, loss_out.shape[1]).mean(dim = 1)
 
-        if control_variate:
-            cv_loss = loss_fn.apply(pred_cost, *loss_args)
-        else:
-            cv_loss = None
-        
-        ctx.save_for_backward(loss_out_pos, loss_out_neg, noise_out, cv_loss)
-        ctx.sigma = sigma
-        ctx.s = s
-        ctx.cv = control_variate
-        ctx.anti = antithetic
+        if training:
+            if control_variate:
+                cv_loss = loss_fn.apply(pred_cost, *loss_args)
+            else:
+                cv_loss = None
+            
+            ctx.save_for_backward(loss_out_pos, loss_out_neg, noise_out, cv_loss)
+            ctx.sigma = sigma
+            ctx.s = s
+            ctx.cv = control_variate
+            ctx.anti = antithetic
 
         return loss
 
