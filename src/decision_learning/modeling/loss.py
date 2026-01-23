@@ -4,7 +4,7 @@ import copy
 from torch.autograd import Function
 from torch.utils.data import Dataset
 import numpy as np
-from decision_learning.utils import handle_solver
+from decision_learning.utils import handle_solver, CILO_lbda
 from decision_learning.modeling.perturbed import PerturbedOpt
 
 # -------------------------------------------------------------------------
@@ -756,7 +756,78 @@ class PG_DCA_Loss(nn.Module):
             raise ValueError("No reduction '{}'.".format(self.reduction))
         return loss
     
-    
+
+# -------------------------------------------------------------------------
+# CILO Loss
+# -------------------------------------------------------------------------
+
+class CILO_Loss(nn.Module):
+    """
+    PG(f_theta(w); c, h, theta0) =
+      ( <f_theta(w), x(f_theta0(w))> - <f_theta(w) - h c, x(f_theta(w) - h c)> ) / h
+
+    - pred_cost = f_theta(w) is passed in (computed outside).
+    - model is passed in so we can snapshot it periodically as the fixed model0.
+    - w is passed in so we can compute f_theta0(w) using the saved model0.
+    """
+    def __init__(self, optmodel, 
+                    beta: float,
+                    reduction: str="mean", 
+                    minimize: bool=True):
+        super().__init__()
+        self.optmodel = optmodel
+        self.beta = beta
+        self.reduction = reduction
+        self.minimize = minimize
+
+    def forward(
+        self,
+        pred_cost: torch.Tensor,   # f_theta(w) computed outside
+        *,
+        X: torch.Tensor,           # inputs to model (needed for model0(X))
+        true_cost: torch.Tensor,   # observed cost vectors y used for the PG loss perturbation
+        pred_model: nn.Module,     # live model (for snapshot updates)
+        solver_kwargs: dict = {},  # dictionary of arguments to pass to the optimization sovler. 
+    ):
+
+        t = pred_cost
+        y = true_cost
+
+        with torch.no_grad():
+            h = CILO_lbda(t, y, self.optmodel, self.beta, kwargs=solver_kwargs)
+
+        t_plus = t + h * y
+
+        # ----------------------------------------------------
+        # Compute reference term using frozen model and new model
+        # ----------------------------------------------------
+        with torch.no_grad():
+            x_t, obj_t = self.optmodel(t, **solver_kwargs)
+            x_t, obj_t = x_t.detach(), obj_t.detach()
+            x_t_plus, obj_t_plus = self.optmodel(t_plus, **solver_kwargs)
+            x_t_plus, obj_t_plus = x_t_plus.detach(), obj_t_plus.detach()
+
+        term1 = torch.sum(t * x_t_plus, axis = 1)
+        # print("term 1: ", term1.mean().item(), torch.sum(x_t_plus, axis = 1).mean().item())
+
+        # Live term: gradients flow through t and through x_fn(t-hc) if x_fn supports autograd
+        term2 = torch.sum(t * x_t, axis = 1)
+        # print("term 2: ", term2.mean().item(), torch.sum(x_t_plus, axis = 1).mean().item())
+
+        loss = (term1 - term2)/h
+        
+        # reduction
+        if self.reduction == "mean":
+            loss = torch.mean(loss)
+        elif self.reduction == "sum":
+            loss = torch.sum(loss)
+        elif self.reduction == "none":
+            loss = loss
+        else:
+            raise ValueError("No reduction '{}'.".format(self.reduction))
+        return loss
+
+
 class VFunc(Function):
     """
     A autograd function for Perturbation Gradient (PG) Loss.
