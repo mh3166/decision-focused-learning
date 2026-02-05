@@ -42,7 +42,7 @@ def lossfn_experiment_data_pipeline(X: Union[np.ndarray, torch.tensor],
         X (Union[np.ndarray, torch.tensor]): features
         true_cost (Union[np.ndarray, torch.tensor]): true cost
         optmodel (callable): optimization model that takes in true_cost and returns optimal solution and objective
-        custom_inputs (dict): additional dictionary of custom inputs for custom loss function
+        custom_inputs (dict): additional dictionary of custom inputs for user-defined loss function
         solver_kwargs (dict): a dictionary of additional arrays of data that the solver may need to solve the optimization model.
 
     Returns:
@@ -147,7 +147,7 @@ def lossfn_experiment_pipeline(X_train: Union[np.ndarray, torch.tensor],
             val_split_params: dict={'test_size':0.2, 'random_state':42},
             loss_names: List[str]=[], 
             loss_configs: dict={}, 
-            custom_loss_inputs: List[dict]=[],
+            user_defined_loss_inputs: List[dict]=[],
             minimize: bool=True,
             training_configs: dict=None,               
             save_models: bool=False,
@@ -171,7 +171,7 @@ def lossfn_experiment_pipeline(X_train: Union[np.ndarray, torch.tensor],
         loss_configs (dict, optional): dictionary mapping from loss_name (key) to a dictionary of different hyperparameters that are then grid searched over. 
             Ex: {'PG': {'h':[num_data**-.125, num_data**-.25, num_data**-.5, num_data**-1], 'finite_diff_type': ['B', 'C', 'F']}}
             The assumption is the hyperparameter grid generated per loss function would not be too big. Defaults to {}.
-        custom_loss_inputs (List[dict], optional): list of custom loss function configurations to run through the train function as part of experient pipeline. Because it is user custom,
+        user_defined_loss_inputs (List[dict], optional): list of user-defined loss function configurations to run through the train function as part of experient pipeline. Because it is provided by the user,
             user is expected to provide inputs in the form:
             {'loss_name': name of the loss function, 
             'loss': a callable loss function,
@@ -228,8 +228,8 @@ def lossfn_experiment_pipeline(X_train: Union[np.ndarray, torch.tensor],
     if training_configs is not None:
         tr_config.update(training_configs)
         
-    # check if a loss function is provided (either off the shelf or custom)
-    if not loss_names and custom_loss_inputs is None:
+    # check if a loss function is provided (either off the shelf or user-defined)
+    if not loss_names and user_defined_loss_inputs is None:
         raise ValueError("Please provide at least one loss function")
     
     # -----------------Initial data preprocessing  -----------------
@@ -309,24 +309,24 @@ def lossfn_experiment_pipeline(X_train: Union[np.ndarray, torch.tensor],
             if save_models: # if save_models, store trained_model under loss_name and hyperparameters                
                 trained_models[loss_n + "_" + str(orig_param_set)] = trained_model
             
-    # -----------------TODO: CUSTOM LOSS FUNCTION: GET BY NAME PROVIDED IN custom_loss_inputs-----------------
-    # TODO: check if names match up with custom loss functions - raise Error otherwise
-    for idx, custom_loss_input in enumerate(custom_loss_inputs):
+    # -----------------TODO: USER-DEFINED LOSS FUNCTION: GET BY NAME PROVIDED IN user_defined_loss_inputs-----------------
+    # TODO: check if names match up with user-defined loss functions - raise Error otherwise
+    for idx, user_defined_loss_input in enumerate(user_defined_loss_inputs):
         
         # logging progress of loss function and parameters
-        logger.info(f"""Trial {idx+1}/{len(custom_loss_inputs)} for custom loss functions, current loss function: {custom_loss_input['loss_name']}""")   
+        logger.info(f"""Trial {idx+1}/{len(user_defined_loss_inputs)} for user-defined loss functions, current loss function: {user_defined_loss_input['loss_name']}""")   
         
-        cur_loss = custom_loss_input['loss']()
+        cur_loss = user_defined_loss_input['loss']()
         
-        # TODO: add functionality to also search over a a grid of hyperparameters for custom loss functions
+        # TODO: add functionality to also search over a a grid of hyperparameters for user-defined loss functions
         pred_model = copy.deepcopy(predmodel)
         
-        # -----------------Initial data preprocessing for custom loss functions-----------------
-        # TODO: add functionality to preprocess data for custom loss functions
+        # -----------------Initial data preprocessing for user-defined loss functions-----------------
+        # TODO: add functionality to preprocess data for user-defined loss functions
         custom_train_d = lossfn_experiment_data_pipeline(X=X_train,
                                 true_cost=true_cost_train, 
                                 optmodel=optmodel,
-                                custom_inputs=custom_loss_input['data'], # custom data
+                                custom_inputs=user_defined_loss_input['data'], # user-provided data
                                 solver_kwargs=train_solver_kwargs)    
         # for custom data, we still need to create train, val split
         # split train/val data    
@@ -344,12 +344,12 @@ def lossfn_experiment_pipeline(X_train: Union[np.ndarray, torch.tensor],
             verbose=training_loop_verbose,
             **tr_config)
 
-        metrics['loss_name'] = custom_loss_input['loss_name']
+        metrics['loss_name'] = user_defined_loss_input['loss_name']
         metrics['hyperparameters'] = None            
         overall_metrics.append(metrics)
         
         if save_models: # if save_models, store trained_model under loss_name and hyperparameters
-            trained_models[custom_loss_input['loss_name']] = trained_model
+            trained_models[user_defined_loss_input['loss_name']] = trained_model
         
     overall_metrics = pd.concat(overall_metrics, ignore_index=True)
     return overall_metrics, trained_models
