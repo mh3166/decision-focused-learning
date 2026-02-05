@@ -11,16 +11,10 @@ from decision_learning.utils import handle_solver
 
 class SPOPlus(nn.Module):
     """
-    Wrapper function around custom SPOLossFunc with customized forwards, backwards pass. Extend
+    Wrapper function around SPOLossFunc with customized backwards pass.
+    This loss uses manual backward logic (not vanilla autograd). Extend
     from nn.Module to use nn.Module's functionalities.
     
-    An autograd module for SPO+ Loss, as a surrogate loss function of SPO Loss,
-    which measures the decision error of the optimization problem.
-
-    For SPO/SPO+ Loss, the objective function is linear and constraints are
-    known and fixed, but the cost vector needs to be predicted from contextual
-    data.
-
     The SPO+ Loss is convex with subgradient. Thus, it allows us to design an
     algorithm based on stochastic gradient descent.
 
@@ -91,7 +85,7 @@ class SPOPlus(nn.Module):
     
 class SPOPlusFunc(Function):
     """
-    A autograd function for SPO+ Loss
+    A autograd function for SPO+ Loss with a custom gradient (manual backward).
     """
 
     @staticmethod
@@ -169,7 +163,8 @@ class SPOPlusFunc(Function):
 
 class PG_Loss(nn.Module):
     """
-    An autograd module for Perturbation Gradient (PG) Loss.
+    An autograd module for Perturbation Gradient (PG) Loss using a custom gradient
+    (manual backward, not vanilla autograd).
 
     Reference: <https://arxiv.org/pdf/2402.03256>
     """
@@ -251,7 +246,8 @@ class PG_Loss(nn.Module):
     
 class PGLossFunc(Function):
     """
-    A autograd function for Perturbation Gradient (PG) Loss.
+    A autograd function for Perturbation Gradient (PG) Loss with a custom gradient
+    (manual backward).
     """
 
     @staticmethod
@@ -356,7 +352,8 @@ class PGLossFunc(Function):
     
 class perturbedFenchelYoung(nn.Module):
     """
-    Wrapper function around custom perturbedFenchelYoungFunc with customized forwards, backwards pass. Extend
+    Wrapper function around perturbedFenchelYoungFunc with customized backwards pass.
+    This loss uses custom autograd behavior (manual backward). Extend
     from nn.Module to use nn.Module's functionalities.
     
     Autograd module for Fenchel-Young loss using perturbation techniques:
@@ -432,7 +429,8 @@ class perturbedFenchelYoung(nn.Module):
 
 class perturbedFenchelYoungFunc(Function):
     """
-    A autograd function for Fenchel-Young loss using perturbation techniques.
+    A autograd function for Fenchel-Young loss using perturbation techniques with a custom gradient
+    (manual backward).
     """
 
     @staticmethod
