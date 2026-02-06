@@ -18,7 +18,7 @@ def box_oracle_single(t: np.ndarray, b: np.ndarray):
     return z, obj
 
 
-def test_oracle_wrapper_correctness():
+def test_oracle_wrapper_batch_correctness():
     # Exercise the toy box oracle through handle_solver; 
     #verify shape, objective consistency, b sensitivity, and deterministic outputs.
     t = torch.tensor([[-1.0, 2.0], [0.0, -3.0], [1.0, 1.0]])

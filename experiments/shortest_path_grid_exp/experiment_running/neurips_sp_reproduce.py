@@ -9,11 +9,11 @@ import pandas as pd
 import numpy as np
 
 import decision_learning.modeling.pipeline
-import decision_learning.data.shortest_path_grid
+import decision_learning.benchmarks.shortest_path_grid.data
 from decision_learning.utils import handle_solver
 from decision_learning.modeling.models import LinearRegression
 from decision_learning.modeling.pipeline import lossfn_experiment_pipeline, lossfn_hyperparam_grid
-from decision_learning.data.shortest_path_grid import genData
+from decision_learning.benchmarks.shortest_path_grid.data import genData
 
 # logging
 import logging

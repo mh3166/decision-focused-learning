@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 import torch
 
-from decision_learning.data.shortest_path_grid import genData
+from decision_learning.benchmarks.shortest_path_grid.data import genData
 from decision_learning.modeling.models import LinearRegression
 from decision_learning.modeling.pipeline import lossfn_experiment_pipeline
 from decision_learning.utils import handle_solver

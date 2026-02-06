@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 
-from decision_learning.data.shortest_path_grid import genData
+from decision_learning.benchmarks.shortest_path_grid.data import genData
 
 _SOLVER_SOURCE = "tests/test_shortest_path_smoke.py (temporary fallback)"
 
