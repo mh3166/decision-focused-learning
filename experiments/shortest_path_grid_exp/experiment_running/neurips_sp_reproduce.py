@@ -105,8 +105,8 @@ def main():
                 planted_bad_pwl_params=planted_bad_pwl_params) # cost function for bad edges
         
         # test solver kwargs
-        train_solver_kwargs = {'size': np.zeros(len(generated_data['cost'])) + 5}
-        test_solver_kwargs = {'size': np.zeros(len(generated_data_test['cost'])) + 5}
+        train_instance_kwargs = {'size': np.zeros(len(generated_data['cost'])) + 5}
+        test_instance_kwargs = {'size': np.zeros(len(generated_data_test['cost'])) + 5}
         
         # ------------prediction model------------
         pred_model = LinearRegression(input_dim=generated_data['feat'].shape[1],
@@ -121,8 +121,8 @@ def main():
                 true_cost_test=generated_data_test['cost_true'], 
                 predmodel=pred_model,
                 optmodel=optmodel,
-                train_solver_kwargs=train_solver_kwargs,
-                test_solver_kwargs=test_solver_kwargs,
+                train_instance_kwargs=train_instance_kwargs,
+                test_instance_kwargs=test_instance_kwargs,
                 val_split_params={'test_size':200, 'random_state':42},
                 loss_names=['SPO+', 'MSE', 'FYL', 'Cosine'],                            
                 training_configs={'num_epochs':100,
@@ -137,8 +137,8 @@ def main():
                 true_cost_test=generated_data_test['cost_true'], 
                 predmodel=preimplement_loss_models['SPO+_{}'],
                 optmodel=optmodel,
-                train_solver_kwargs=train_solver_kwargs,
-                test_solver_kwargs=test_solver_kwargs,
+                train_instance_kwargs=train_instance_kwargs,
+                test_instance_kwargs=test_instance_kwargs,
                 val_split_params={'test_size':200, 'random_state':42},
                 loss_names=['PG'],
                 loss_configs={'PG': {'h':[num_data**-.125, num_data**-.25, num_data**-.5, num_data**-1], 'finite_diff_type': ['B', 'C', 'F']}},
@@ -154,8 +154,8 @@ def main():
                         true_cost_test=generated_data_test['cost_true'], 
                         predmodel=pred_model,
                         optmodel=optmodel,
-                        train_solver_kwargs=train_solver_kwargs,
-                        test_solver_kwargs=test_solver_kwargs,
+                        train_instance_kwargs=train_instance_kwargs,
+                        test_instance_kwargs=test_instance_kwargs,
                         val_split_params={'test_size':200, 'random_state':42},
                         loss_names=['CosineSurrogateDotProdVecMag','CosineSurrogateDotProdMSE'],
                         loss_configs={'CosineSurrogateDotProdVecMag': {'alpha':[0.01, 0.1, 1, 2.5, 5, 7.5, 10]},
