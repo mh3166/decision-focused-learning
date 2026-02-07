@@ -14,15 +14,15 @@ def _build_alignment_data(num_rows: int) -> dict:
         "true_cost": ids.reshape(-1, 1),
         "true_sol": np.stack([ids, ids], axis=1),
         "true_obj": ids.reshape(-1, 1),
-        "solver_kwargs": {"size": ids.copy()},
+        "instance_kwargs": {"size": ids.copy()},
     }
     return data
 
 
-def _echo_solver(true_cost, solver_kwargs=None):
+def _echo_solver(true_cost, instance_kwargs=None):
     # Dummy solver that returns inputs as outputs to preserve row-wise IDs.
-    if solver_kwargs is None:
-        solver_kwargs = {}
+    if instance_kwargs is None:
+        instance_kwargs = {}
     sol = true_cost.copy()
     obj = true_cost.copy()
     return sol, obj
@@ -35,7 +35,7 @@ def _preprocess_alignment_data(num_rows: int) -> dict:
         X=data["X"],
         true_cost=data["true_cost"],
         optmodel=_echo_solver,
-        solver_kwargs=data["solver_kwargs"],
+        instance_kwargs=data["instance_kwargs"],
     )
 
 
@@ -45,17 +45,17 @@ def _assert_alignment(split_dict: dict) -> None:
     ids_from_cost = split_dict["true_cost"][:, 0]
     ids_from_sol = split_dict["true_sol"][:, 0]
     ids_from_obj = split_dict["true_obj"][:, 0]
-    ids_from_solver = split_dict["solver_kwargs"]["size"]
+    ids_from_solver = split_dict["instance_kwargs"]["size"]
 
     assert split_dict["X"].shape[0] == split_dict["true_cost"].shape[0]
     assert split_dict["X"].shape[0] == split_dict["true_sol"].shape[0]
     assert split_dict["X"].shape[0] == split_dict["true_obj"].shape[0]
-    assert split_dict["X"].shape[0] == split_dict["solver_kwargs"]["size"].shape[0]
+    assert split_dict["X"].shape[0] == split_dict["instance_kwargs"]["size"].shape[0]
 
     assert np.array_equal(ids_from_x, ids_from_cost), "X and true_cost rows misaligned"
     assert np.array_equal(ids_from_x, ids_from_sol), "X and true_sol rows misaligned"
     assert np.array_equal(ids_from_x, ids_from_obj), "X and true_obj rows misaligned"
-    assert np.array_equal(ids_from_x, ids_from_solver), "X and solver_kwargs rows misaligned"
+    assert np.array_equal(ids_from_x, ids_from_solver), "X and instance_kwargs rows misaligned"
 
 
 def test_train_val_split_preserves_alignment():
