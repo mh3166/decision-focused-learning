@@ -194,13 +194,12 @@ def lossfn_experiment_pipeline(X_train: Union[np.ndarray, torch.tensor],
                 'lr': 0.01,
                 'scheduler_params': None
             }. 
-            Defaults to None.        
+            If not provided, function uses above dict as default values.
         
         handle_solver_func (callable): a function that handles the optimization model solver. This function must take in:
                 - optmodel (callable): optimization model
                 - pred_cost (torch.tensor): predicted coefficients/parameters for optimization model
                 - solver_kwargs (dict): a dictionary of additional arrays of data that the solver
-                
                     
         save_models (bool, optional): flag to save models or not. If we are searching over many hyperparameters/loss function/models, 
                                     may be impractical to store all of them since we may not be able to fit it in all in memory. 
@@ -231,11 +230,9 @@ def lossfn_experiment_pipeline(X_train: Union[np.ndarray, torch.tensor],
         
     # check if a loss function is provided (either off the shelf or custom)
     if not loss_names and custom_loss_inputs is None:
-        raise ValueError("Please provide a loss function")
+        raise ValueError("Please provide at least one loss function")
     
-    # -----------------EXISTING LOSS FUNCTIONS: GET BY NAME PROVIDED IN loss_names----------------- 
-    
-    # -----------------Initial data preprocessing for existing loss functions-----------------
+    # -----------------Initial data preprocessing  -----------------
     # This is done to ensure that the data is in the correct format for the loss functions
     # training data
     train_d = lossfn_experiment_data_pipeline(X_train, true_cost_train, optmodel, solver_kwargs=train_solver_kwargs)
@@ -295,7 +292,8 @@ def lossfn_experiment_pipeline(X_train: Union[np.ndarray, torch.tensor],
             # TODO: allow for user initialization of prediciton model
             pred_model = copy.deepcopy(predmodel)
 
-            metrics, trained_model = train(pred_model=pred_model, # call train function
+            # call train function
+            metrics, trained_model = train(pred_model=pred_model, 
                 optmodel=optmodel,
                 loss_fn=cur_loss,
                 train_data_dict=train_dict_processed,
@@ -326,16 +324,17 @@ def lossfn_experiment_pipeline(X_train: Union[np.ndarray, torch.tensor],
         
         # -----------------Initial data preprocessing for custom loss functions-----------------
         # TODO: add functionality to preprocess data for custom loss functions
-        custom_trian_d = lossfn_experiment_data_pipeline(X=X_train,
+        custom_train_d = lossfn_experiment_data_pipeline(X=X_train,
                                 true_cost=true_cost_train, 
                                 optmodel=optmodel,
                                 custom_inputs=custom_loss_input['data'], # custom data
                                 solver_kwargs=train_solver_kwargs)    
         # for custom data, we still need to create train, val split
         # split train/val data    
-        train_dict, val_dict = train_val_spl(train_d=custom_trian_d, val_split_params=val_split_params)        
+        train_dict, val_dict = train_val_spl(train_d=custom_train_d, val_split_params=val_split_params)        
         # -----------------------------------------------------------------------------------------
         
+        #training
         metrics, trained_model = train(pred_model=pred_model,
             optmodel=optmodel,
             loss_fn=cur_loss,
@@ -345,6 +344,7 @@ def lossfn_experiment_pipeline(X_train: Union[np.ndarray, torch.tensor],
             minimization=minimize,
             verbose=training_loop_verbose,
             **tr_config)
+
         metrics['loss_name'] = custom_loss_input['loss_name']
         metrics['hyperparameters'] = None            
         overall_metrics.append(metrics)
