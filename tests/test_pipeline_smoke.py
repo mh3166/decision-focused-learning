@@ -57,8 +57,8 @@ def _run_pipeline(loss_name: str, seed: int = 123, print_metrics: bool = False):
     )
 
     # solver expects a per-sample grid size; use the grid dimension for all samples.
-    train_solver_kwargs = {'size': np.zeros(n_train) + grid[0]}
-    test_solver_kwargs = {'size': np.zeros(n_test) + grid[0]}
+    train_instance_kwargs = {'size': np.zeros(n_train) + grid[0]}
+    test_instance_kwargs = {'size': np.zeros(n_test) + grid[0]}
 
     pred_model = LinearRegression(
         input_dim=train_data['feat'].shape[1],
@@ -72,8 +72,8 @@ def _run_pipeline(loss_name: str, seed: int = 123, print_metrics: bool = False):
         true_cost_test=test_data['cost_true'],
         predmodel=pred_model,
         optmodel=optmodel,
-        train_solver_kwargs=train_solver_kwargs,
-        test_solver_kwargs=test_solver_kwargs,
+        train_instance_kwargs=train_instance_kwargs,
+        test_instance_kwargs=test_instance_kwargs,
         val_split_params={'test_size': 0.25, 'random_state': seed},
         loss_names=[loss_name],
         training_configs={
