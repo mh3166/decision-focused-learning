@@ -1,7 +1,8 @@
 import inspect
-import os 
 import time
 from functools import wraps
+
+import numpy as np
 import torch 
 import numpy as np
 
@@ -99,3 +100,76 @@ def log_runtime(func):
         logger.info(f"Function '{func.__name__}' took {end_time - start_time} seconds to run.")
         return result
     return wrapper
+
+def CILO_lbda(
+    pred_cost: torch.Tensor,
+    Y: torch.Tensor,
+    optmodel,
+    beta: float,
+    *,
+    kwargs: dict | None = None,
+    sens: float = 1e-4,
+    init_upper: float = 1e-2,
+    max_expand: int = 50,
+    max_bisect: int = 200,
+) -> float:
+    """
+    Find lambda >= 0 such that mean_i <Y_i, x_i(lambda)> - beta ~= 0,
+    where x_i(lambda) is returned by optmodel(pred_cost + lambda * Y).
+
+    Uses:
+      1) Exponential search to bracket a sign change
+      2) Bisection to solve to tolerance
+
+    Note: res_u and res_l are not necessary, but may be useful for debugging
+    """
+    if kwargs is None:
+        kwargs = {}
+
+    def residual(lbda: float) -> float:
+        sol, _ = optmodel(pred_cost + lbda * Y, **kwargs)  # sol: (batch, d)
+        # mean over batch of dot(Y_i, sol_i)
+        return (torch.sum(Y * sol, dim=1).mean() - beta).item()
+
+    # ---- 1) Bracket root: find [lbda_l, lbda_u] with res(l) > 0 and res(u) <= 0 ----
+    lbda_l = 0.0
+    lbda_u = float(init_upper)
+
+    res_u = residual(lbda_u)
+    expand_steps = 0
+    while res_u > 0 and expand_steps < max_expand:
+        lbda_l = lbda_u
+        lbda_u *= 2.0
+        res_u = residual(lbda_u)
+        expand_steps += 1
+
+    # If we never found res_u <= 0, we can't bracket; return best effort upper.
+    if res_u > 0:
+        return lbda_u
+
+    # ---- 2) Bisection on bracket ----
+    res_l = residual(lbda_l)  # should typically be > 0 for a proper bracket
+    lbda = 0.5 * (lbda_l + lbda_u)
+
+    for _ in range(max_bisect):
+        res_mid = residual(lbda)
+
+        if abs(res_mid) <= sens:
+            break
+
+        # Maintain invariant: res(l) > 0, res(u) <= 0
+        if res_mid > 0:
+            lbda_l, res_l = lbda, res_mid
+        else:
+            lbda_u, res_u = lbda, res_mid
+
+        new_lbda = 0.5 * (lbda_l + lbda_u)
+
+        # Optional early stop: interval too small and we're on the feasible side
+        if abs(new_lbda - lbda) < sens and res_mid <= 0:
+            lbda = new_lbda
+            break
+
+        lbda = new_lbda
+
+    return float(lbda)

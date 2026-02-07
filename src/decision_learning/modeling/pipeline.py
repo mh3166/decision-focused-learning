@@ -49,8 +49,8 @@ def lossfn_experiment_data_pipeline(X: Union[np.ndarray, torch.tensor],
         dict: dictionary with keys "X", "true_cost", "true_sol", "true_obj", "instance_kwargs" for consistency across loss functions
     """
     
-    sol, obj = optmodel(true_cost, instance_kwargs=instance_kwargs) # get optimal solution and objective under true cost
-    final_data = {"X": X, "true_cost": true_cost, "true_sol": sol, "true_obj": obj, "instance_kwargs": instance_kwargs} # wrap data into dictionary
+    sol, obj = optmodel(true_cost, **instance_kwargs) # get optimal solution and objective under true cost
+    final_data = {"X": X, "true_cost": true_cost, "true_sol": sol, "true_obj": obj, "solver_kwargs": solver_kwargs} # wrap data into dictionary
     
     if custom_inputs:
         final_data.update(custom_inputs)
@@ -282,7 +282,8 @@ def lossfn_experiment_pipeline(X_train: Union[np.ndarray, torch.tensor],
             # ------------------------------------------------------------
             
             # ADDITIONAL: create correct data input for off-the-shelf loss/preexisting loss function
-            train_dict = existing_lossfn_data_preprocess(loss_name=loss_n, data_dict=train_dict)
+            # Use a copy to prevent modifications from persisting across loss functions
+            train_dict_processed = existing_lossfn_data_preprocess(loss_name=loss_n, data_dict=copy.deepcopy(train_dict))
             
             # -----------------TRAINING LOOP-----------------
             # TODO: decide if all loss functions should start from the same model 
@@ -295,7 +296,7 @@ def lossfn_experiment_pipeline(X_train: Union[np.ndarray, torch.tensor],
             metrics, trained_model = train(pred_model=pred_model, 
                 optmodel=optmodel,
                 loss_fn=cur_loss,
-                train_data_dict=train_dict,
+                train_data_dict=train_dict_processed,
                 val_data_dict=val_dict,
                 test_data_dict=test_data,
                 minimization=minimize,

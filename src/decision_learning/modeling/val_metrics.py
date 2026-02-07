@@ -32,13 +32,14 @@ def decision_regret(pred_cost: torch.tensor,
         instance_kwargs (dict): a dictionary of per-sample arrays of data that define each instance and that the solver
     """    
     # get batch's current optimal solution value and objective vvalue based on the predicted cost
-    w_hat, z_hat = optmodel(pred_cost, instance_kwargs=instance_kwargs) 
-    
-    # To ensure consistency, convert everything into a pytorch tensor
-    w_hat = torch.as_tensor(w_hat, dtype=torch.float32)
-    z_hat = torch.as_tensor(z_hat, dtype=torch.float32)
-    true_cost = torch.as_tensor(true_cost, dtype=torch.float32)
-    true_obj = torch.as_tensor(true_obj, dtype=torch.float32)
+    w_hat, z_hat = optmodel(pred_cost, **instance_kwargs)
+
+    # To ensure consistency, convert everything into a pytorch tensor on the same device as pred_cost
+    device = pred_cost.device if isinstance(pred_cost, torch.Tensor) else 'cpu'
+    w_hat = torch.as_tensor(w_hat, dtype=torch.float32, device=device)
+    z_hat = torch.as_tensor(z_hat, dtype=torch.float32, device=device)
+    true_cost = torch.as_tensor(true_cost, dtype=torch.float32, device=device)
+    true_obj = torch.as_tensor(true_obj, dtype=torch.float32, device=device)
     
     # objective value of pred_cost induced solution (w_hat) based on true cost
     obj_hat = (w_hat * true_cost).sum(axis=1, keepdim=True)

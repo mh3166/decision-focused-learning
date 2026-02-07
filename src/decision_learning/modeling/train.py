@@ -163,10 +163,9 @@ def train(pred_model: nn.Module,
     # typically we'd want decision regret as val metric, but this requires an optimization model to be passed in so that
     # optmodel as an attribute. (similar logic applies to other params we may want to pass in)
     preset_params = {'optmodel': optmodel, 'minimize': minimization}
-    for param in preset_params.keys():
-        if param not in inspect.signature(val_metric).parameters: 
-            # if not in the function signature, drop it from the preset params
-            preset_params.pop(param)
+    # filter to only include params that are in the function signature
+    preset_params = {k: v for k, v in preset_params.items()
+                     if k in inspect.signature(val_metric).parameters}
     val_metric = partial(val_metric, **preset_params) # set optmodel/minimize as an attribute of the function
             
     # log metrics
@@ -178,7 +177,7 @@ def train(pred_model: nn.Module,
     
     
     # ------------------------- TRAINING LOOP -------------------------
-    for epoch in range(num_epochs):
+    for epoch in tqdm(range(num_epochs)):
         
         # ------------------------- TRAINING -------------------------
         # THIS SECTION SHOULD NOT NEED TO BE MODIFIED - CUSTOM BEHAVIOR SHOULD BE SPECIFIED IN THE loss_fn FUNCTION
@@ -194,6 +193,7 @@ def train(pred_model: nn.Module,
             
             # forward pass
             pred = pred_model(batch['X'])
+            batch['pred_model'] = pred_model
             
             # -------- backwards pass --------
             # calculate loss. Since we assume loss_fn will be highly customized in terms of its inputs/function signature
