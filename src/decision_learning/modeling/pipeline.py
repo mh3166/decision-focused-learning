@@ -30,7 +30,7 @@ def lossfn_experiment_data_pipeline(X: Union[np.ndarray, torch.tensor],
                                 true_cost: Union[np.ndarray, torch.tensor], 
                                 optmodel: callable,
                                 custom_inputs: dict={},
-                                solver_kwargs: dict={}):
+                                instance_kwargs: dict={}):
     """Wrapper function to preprocess data for experiments on loss functions implemented within the code base in decision_learning.modeling.loss
     Since decision-aware/focused problems generally compare the optimal solution/obj under the true_cost vs the solution/obj under the predicted cost,
     we precompute the optimal solution and objective under the true cost as "true_sol" and "true_obj". For flexibility reasons, the code base/train/pipeline/loss functions
@@ -42,15 +42,15 @@ def lossfn_experiment_data_pipeline(X: Union[np.ndarray, torch.tensor],
         X (Union[np.ndarray, torch.tensor]): features
         true_cost (Union[np.ndarray, torch.tensor]): true cost
         optmodel (callable): optimization model that takes in true_cost and returns optimal solution and objective
-        custom_inputs (dict): additional dictionary of custom inputs for custom loss function
-        solver_kwargs (dict): a dictionary of additional arrays of data that the solver may need to solve the optimization model.
+        custom_inputs (dict): additional dictionary of custom inputs for user-defined loss function
+        instance_kwargs (dict): a dictionary of per-sample arrays of data that define each instance and that the solver may need to solve the optimization model.
 
     Returns:
-        dict: dictionary with keys "X", "true_cost", "true_sol", "true_obj", "solver_kwargs" for consistency across loss functions
+        dict: dictionary with keys "X", "true_cost", "true_sol", "true_obj", "instance_kwargs" for consistency across loss functions
     """
     
-    sol, obj = optmodel(true_cost, solver_kwargs=solver_kwargs) # get optimal solution and objective under true cost
-    final_data = {"X": X, "true_cost": true_cost, "true_sol": sol, "true_obj": obj, "solver_kwargs": solver_kwargs} # wrap data into dictionary
+    sol, obj = optmodel(true_cost, instance_kwargs=instance_kwargs) # get optimal solution and objective under true cost
+    final_data = {"X": X, "true_cost": true_cost, "true_sol": sol, "true_obj": obj, "instance_kwargs": instance_kwargs} # wrap data into dictionary
     
     if custom_inputs:
         final_data.update(custom_inputs)
@@ -60,7 +60,7 @@ def lossfn_experiment_data_pipeline(X: Union[np.ndarray, torch.tensor],
 
 def train_val_spl(train_d: dict, val_split_params: dict={'test_size':0.2, 'random_state':42}):
     """ Util function to enable splitting of training dict into train/val split dicts and to handle
-    solver_kwargs case
+    instance_kwargs case
 
     Args:
         train_d (dict): dictionary of input data
@@ -76,8 +76,8 @@ def train_val_spl(train_d: dict, val_split_params: dict={'test_size':0.2, 'rando
 
     for key, value in train_d.items():
         
-        # since solver_kwargs is itself a dict, we need to subprocess this nested dict
-        if key == 'solver_kwargs':
+        # since instance_kwargs is itself a dict, we need to subprocess this nested dict
+        if key == 'instance_kwargs':
             train_data = {}
             val_data = {}
             for sol_key, sol_value in value.items():
@@ -85,7 +85,7 @@ def train_val_spl(train_d: dict, val_split_params: dict={'test_size':0.2, 'rando
                 train_data[sol_key] = train_sol_val
                 val_data[sol_key] = val_sol_value        
         else:                                    
-            # if not 'solver_kwargs', can just directly split since everything else will be arrays    
+            # if not 'instance_kwargs', can just directly split since everything else will be arrays    
             train_data, val_data = train_test_split(value, **val_split_params)                                
         
         train_dict[key] = train_data
@@ -142,12 +142,12 @@ def lossfn_experiment_pipeline(X_train: Union[np.ndarray, torch.tensor],
             true_cost_test: Union[np.ndarray, torch.tensor],            
             predmodel: callable,
             optmodel: callable,
-            train_solver_kwargs: dict={},
-            test_solver_kwargs: dict={},
+            train_instance_kwargs: dict={},
+            test_instance_kwargs: dict={},
             val_split_params: dict={'test_size':0.2, 'random_state':42},
             loss_names: List[str]=[], 
             loss_configs: dict={}, 
-            custom_loss_inputs: List[dict]=[],
+            user_defined_loss_inputs: List[dict]=[],
             minimize: bool=True,
             training_configs: dict=None,               
             save_models: bool=False,
@@ -162,8 +162,8 @@ def lossfn_experiment_pipeline(X_train: Union[np.ndarray, torch.tensor],
         predmodel (callable): pytorch prediction model
         optmodel (callable): optimization model that takes in true_cost and returns optimal solution and objective
         
-        train_solver_kwargs (dict, optional): train data - a dictionary of additional arrays of data that the solver may need to solve the optimization model.
-        test_solver_kwargs (dict, optional): test data - a dictionary of additional arrays of data that the solver may need to solve the optimization model.
+        train_instance_kwargs (dict, optional): train data - a dictionary of per-sample arrays of data that define each instance and that the solver may need to solve the optimization model.
+        test_instance_kwargs (dict, optional): test data - a dictionary of per-sample arrays of data that define each instance and that the solver may need to solve the optimization model.
         
         val_split_params (dict, optional): how to split training data into train/val splits. Defaults to {'test_size':0.2, 'random_state':42}.
         loss_names (List[str], optional): list of loss functions to run experiment pipeline on that are implemented already in the codebase in decision_learning.modeling.loss. Defaults to [].
@@ -171,7 +171,7 @@ def lossfn_experiment_pipeline(X_train: Union[np.ndarray, torch.tensor],
         loss_configs (dict, optional): dictionary mapping from loss_name (key) to a dictionary of different hyperparameters that are then grid searched over. 
             Ex: {'PG': {'h':[num_data**-.125, num_data**-.25, num_data**-.5, num_data**-1], 'finite_diff_type': ['B', 'C', 'F']}}
             The assumption is the hyperparameter grid generated per loss function would not be too big. Defaults to {}.
-        custom_loss_inputs (List[dict], optional): list of custom loss function configurations to run through the train function as part of experient pipeline. Because it is user custom,
+        user_defined_loss_inputs (List[dict], optional): list of user-defined loss function configurations to run through the train function as part of experient pipeline. Because it is provided by the user,
             user is expected to provide inputs in the form:
             {'loss_name': name of the loss function, 
             'loss': a callable loss function,
@@ -199,7 +199,7 @@ def lossfn_experiment_pipeline(X_train: Union[np.ndarray, torch.tensor],
         handle_solver_func (callable): a function that handles the optimization model solver. This function must take in:
                 - optmodel (callable): optimization model
                 - pred_cost (torch.tensor): predicted coefficients/parameters for optimization model
-                - solver_kwargs (dict): a dictionary of additional arrays of data that the solver
+                - instance_kwargs (dict): a dictionary of per-sample arrays of data that define each instance and that the solver
                     
         save_models (bool, optional): flag to save models or not. If we are searching over many hyperparameters/loss function/models, 
                                     may be impractical to store all of them since we may not be able to fit it in all in memory. 
@@ -228,20 +228,20 @@ def lossfn_experiment_pipeline(X_train: Union[np.ndarray, torch.tensor],
     if training_configs is not None:
         tr_config.update(training_configs)
         
-    # check if a loss function is provided (either off the shelf or custom)
-    if not loss_names and custom_loss_inputs is None:
+    # check if a loss function is provided (either off the shelf or user-defined)
+    if not loss_names and user_defined_loss_inputs is None:
         raise ValueError("Please provide at least one loss function")
     
     # -----------------Initial data preprocessing  -----------------
     # This is done to ensure that the data is in the correct format for the loss functions
     # training data
-    train_d = lossfn_experiment_data_pipeline(X_train, true_cost_train, optmodel, solver_kwargs=train_solver_kwargs)
+    train_d = lossfn_experiment_data_pipeline(X_train, true_cost_train, optmodel, instance_kwargs=train_instance_kwargs)
     
     # split train/val data
     train_dict, val_dict = train_val_spl(train_d=train_d, val_split_params=val_split_params)
     
     # testing data
-    test_data = lossfn_experiment_data_pipeline(X_test, true_cost_test, optmodel, solver_kwargs=test_solver_kwargs)
+    test_data = lossfn_experiment_data_pipeline(X_test, true_cost_test, optmodel, instance_kwargs=test_instance_kwargs)
     
     # -----------------EXPERIMENT LOGGING SETUP----------------- 
     overall_metrics = []
@@ -309,25 +309,25 @@ def lossfn_experiment_pipeline(X_train: Union[np.ndarray, torch.tensor],
             if save_models: # if save_models, store trained_model under loss_name and hyperparameters                
                 trained_models[loss_n + "_" + str(orig_param_set)] = trained_model
             
-    # -----------------TODO: CUSTOM LOSS FUNCTION: GET BY NAME PROVIDED IN custom_loss_inputs-----------------
-    # TODO: check if names match up with custom loss functions - raise Error otherwise
-    for idx, custom_loss_input in enumerate(custom_loss_inputs):
+    # -----------------TODO: USER-DEFINED LOSS FUNCTION: GET BY NAME PROVIDED IN user_defined_loss_inputs-----------------
+    # TODO: check if names match up with user-defined loss functions - raise Error otherwise
+    for idx, user_defined_loss_input in enumerate(user_defined_loss_inputs):
         
         # logging progress of loss function and parameters
-        logger.info(f"""Trial {idx+1}/{len(custom_loss_inputs)} for custom loss functions, current loss function: {custom_loss_input['loss_name']}""")   
+        logger.info(f"""Trial {idx+1}/{len(user_defined_loss_inputs)} for user-defined loss functions, current loss function: {user_defined_loss_input['loss_name']}""")   
         
-        cur_loss = custom_loss_input['loss']()
+        cur_loss = user_defined_loss_input['loss']()
         
-        # TODO: add functionality to also search over a a grid of hyperparameters for custom loss functions
+        # TODO: add functionality to also search over a a grid of hyperparameters for user-defined loss functions
         pred_model = copy.deepcopy(predmodel)
         
-        # -----------------Initial data preprocessing for custom loss functions-----------------
-        # TODO: add functionality to preprocess data for custom loss functions
+        # -----------------Initial data preprocessing for user-defined loss functions-----------------
+        # TODO: add functionality to preprocess data for user-defined loss functions
         custom_train_d = lossfn_experiment_data_pipeline(X=X_train,
                                 true_cost=true_cost_train, 
                                 optmodel=optmodel,
-                                custom_inputs=custom_loss_input['data'], # custom data
-                                solver_kwargs=train_solver_kwargs)    
+                                custom_inputs=user_defined_loss_input['data'], # user-provided data
+                                instance_kwargs=train_instance_kwargs)    
         # for custom data, we still need to create train, val split
         # split train/val data    
         train_dict, val_dict = train_val_spl(train_d=custom_train_d, val_split_params=val_split_params)        
@@ -344,12 +344,12 @@ def lossfn_experiment_pipeline(X_train: Union[np.ndarray, torch.tensor],
             verbose=training_loop_verbose,
             **tr_config)
 
-        metrics['loss_name'] = custom_loss_input['loss_name']
+        metrics['loss_name'] = user_defined_loss_input['loss_name']
         metrics['hyperparameters'] = None            
         overall_metrics.append(metrics)
         
         if save_models: # if save_models, store trained_model under loss_name and hyperparameters
-            trained_models[custom_loss_input['loss_name']] = trained_model
+            trained_models[user_defined_loss_input['loss_name']] = trained_model
         
     overall_metrics = pd.concat(overall_metrics, ignore_index=True)
     return overall_metrics, trained_models

@@ -11,16 +11,10 @@ from decision_learning.utils import handle_solver
 
 class SPOPlus(nn.Module):
     """
-    Wrapper function around custom SPOLossFunc with customized forwards, backwards pass. Extend
+    Wrapper function around SPOLossFunc with customized backwards pass.
+    This loss uses manual backward logic (not vanilla autograd). Extend
     from nn.Module to use nn.Module's functionalities.
     
-    An autograd module for SPO+ Loss, as a surrogate loss function of SPO Loss,
-    which measures the decision error of the optimization problem.
-
-    For SPO/SPO+ Loss, the objective function is linear and constraints are
-    known and fixed, but the cost vector needs to be predicted from contextual
-    data.
-
     The SPO+ Loss is convex with subgradient. Thus, it allows us to design an
     algorithm based on stochastic gradient descent.
 
@@ -37,7 +31,7 @@ class SPOPlus(nn.Module):
                 optmodel to solve the optimization problem using the predicted cost to get the optimal solution and objective value.
                 It must take in:                                 
                     - pred_cost (torch.tensor): predicted coefficients/parameters for optimization model
-                    - solver_kwargs (dict): a dictionary of additional arrays of data that the solver
+                    - instance_kwargs (dict): a dictionary of per-sample arrays of data that define each optimization instance
                 It must also:
                     - detach tensors if necessary
                     - loop or batch data solve 
@@ -58,7 +52,7 @@ class SPOPlus(nn.Module):
             true_cost: torch.tensor, 
             true_sol: torch.tensor, 
             true_obj: torch.tensor,
-            solver_kwargs: dict = {}):
+            instance_kwargs: dict = {}):
         """
         Forward pass
         
@@ -74,7 +68,7 @@ class SPOPlus(nn.Module):
                             true_obj, 
                             self.optmodel, 
                             self.minimize,                             
-                            solver_kwargs
+                            instance_kwargs
                         )
         
         # reduction
@@ -91,7 +85,7 @@ class SPOPlus(nn.Module):
     
 class SPOPlusFunc(Function):
     """
-    A autograd function for SPO+ Loss
+    A autograd function for SPO+ Loss with a custom gradient (manual backward).
     """
 
     @staticmethod
@@ -102,7 +96,7 @@ class SPOPlusFunc(Function):
             true_obj: torch.tensor,
             optmodel: callable,
             minimize: bool = True,            
-            solver_kwargs: dict = {}):
+            instance_kwargs: dict = {}):
         """
         Forward pass for SPO+
 
@@ -116,14 +110,14 @@ class SPOPlusFunc(Function):
                 optmodel to solve the optimization problem using the predicted cost to get the optimal solution and objective value.
                 It must take in:                                 
                     - pred_cost (torch.tensor): predicted coefficients/parameters for optimization model
-                    - solver_kwargs (dict): a dictionary of additional arrays of data that the solver
+                    - instance_kwargs (dict): a dictionary of per-sample arrays of data that define each optimization instance
                 It must also:
                     - detach tensors if necessary
                     - loop or batch data solve 
                 In practice, the user should wrap their own optmodel in the decision_learning.utils.handle_solver function so that
                 these are all taken care of.                                
             minimize (bool): whether the optimization problem is minimization or maximization            
-            solver_kwargs (dict): a dictionary of additional arrays of data that the solver
+            instance_kwargs (dict): a dictionary of per-sample arrays of data that define each optimization instance
             
         Returns:
             torch.tensor: SPO+ loss
@@ -134,7 +128,7 @@ class SPOPlusFunc(Function):
         c, w, z = true_cost, true_sol, true_obj
         
         # get batch's current optimal solution value and objective vvalue based on the predicted cost
-        w_hat, z_hat = optmodel(2*c_hat - c, solver_kwargs=solver_kwargs)                            
+        w_hat, z_hat = optmodel(2*c_hat - c, instance_kwargs=instance_kwargs)                            
                         
         # calculate loss
         # SPO loss = - min_{w} (2 * c_hat - c)^T w + 2 * c_hat^T w - z = - z_hat + 2 * c_hat^T w - z
@@ -169,7 +163,8 @@ class SPOPlusFunc(Function):
 
 class PG_Loss(nn.Module):
     """
-    An autograd module for Perturbation Gradient (PG) Loss.
+    An autograd module for Perturbation Gradient (PG) Loss using a custom gradient
+    (manual backward, not vanilla autograd).
 
     Reference: <https://arxiv.org/pdf/2402.03256>
     """
@@ -187,7 +182,7 @@ class PG_Loss(nn.Module):
                 optmodel to solve the optimization problem using the predicted cost to get the optimal solution and objective value.
                 It must take in:                                 
                     - pred_cost (torch.tensor): predicted coefficients/parameters for optimization model
-                    - solver_kwargs (dict): a dictionary of additional arrays of data that the solver
+                    - instance_kwargs (dict): a dictionary of per-sample arrays of data that define each optimization instance
                 It must also:
                     - detach tensors if necessary
                     - loop or batch data solve 
@@ -220,7 +215,7 @@ class PG_Loss(nn.Module):
     def forward(self, 
             pred_cost: torch.tensor, 
             true_cost: torch.tensor,
-            solver_kwargs: dict = {}):
+            instance_kwargs: dict = {}):
         """
         Forward pass
         
@@ -234,7 +229,7 @@ class PG_Loss(nn.Module):
                             self.finite_diff_type, 
                             self.optmodel,
                             self.minimize,                                           
-                            solver_kwargs
+                            instance_kwargs
                         )
         
         # reduction
@@ -251,7 +246,8 @@ class PG_Loss(nn.Module):
     
 class PGLossFunc(Function):
     """
-    A autograd function for Perturbation Gradient (PG) Loss.
+    A autograd function for Perturbation Gradient (PG) Loss with a custom gradient
+    (manual backward).
     """
 
     @staticmethod
@@ -262,7 +258,7 @@ class PGLossFunc(Function):
             finite_diff_type: str,
             optmodel: callable,
             minimize: bool = True,            
-            solver_kwargs: dict = {}):            
+            instance_kwargs: dict = {}):            
         """
         Forward pass for PG Loss
 
@@ -278,14 +274,14 @@ class PGLossFunc(Function):
                 optmodel to solve the optimization problem using the predicted cost to get the optimal solution and objective value.
                 It must take in:                                 
                     - pred_cost (torch.tensor): predicted coefficients/parameters for optimization model
-                    - solver_kwargs (dict): a dictionary of additional arrays of data that the solver
+                    - instance_kwargs (dict): a dictionary of per-sample arrays of data that define each optimization instance
                 It must also:
                     - detach tensors if necessary
                     - loop or batch data solve 
                 In practice, the user should wrap their own optmodel in the decision_learning.utils.handle_solver function so that
                 these are all taken care of.
             minimize (bool): whether the optimization problem is minimization or maximization         
-            solver_kwargs (dict): a dictionary of additional arrays of data that the solver
+            instance_kwargs (dict): a dictionary of per-sample arrays of data that define each optimization instance
             
             
         Returns:
@@ -315,11 +311,11 @@ class PGLossFunc(Function):
         # solve optimization problems
         # Plus Perturbation Optimization Problem
         sol_plus, obj_plus = optmodel(cp_plus,                                                  
-                solver_kwargs=solver_kwargs)   
+                instance_kwargs=instance_kwargs)   
                 
         # Minus Perturbation Optimization Problem
         sol_minus, obj_minus = optmodel(cp_minus,                
-                solver_kwargs=solver_kwargs)   
+                instance_kwargs=instance_kwargs)   
         
         # calculate loss
         loss = (obj_plus - obj_minus) * step_size
@@ -356,7 +352,8 @@ class PGLossFunc(Function):
     
 class perturbedFenchelYoung(nn.Module):
     """
-    Wrapper function around custom perturbedFenchelYoungFunc with customized forwards, backwards pass. Extend
+    Wrapper function around perturbedFenchelYoungFunc with customized backwards pass.
+    This loss uses custom autograd behavior (manual backward). Extend
     from nn.Module to use nn.Module's functionalities.
     
     Autograd module for Fenchel-Young loss using perturbation techniques:
@@ -376,7 +373,7 @@ class perturbedFenchelYoung(nn.Module):
                 optmodel to solve the optimization problem using the predicted cost to get the optimal solution and objective value.
                 It must take in:                                 
                     - pred_cost (torch.tensor): predicted coefficients/parameters for optimization model
-                    - solver_kwargs (dict): a dictionary of additional arrays of data that the solver
+                    - instance_kwargs (dict): a dictionary of per-sample arrays of data that define each optimization instance
                 It must also:
                     - detach tensors if necessary
                     - loop or batch data solve 
@@ -401,7 +398,7 @@ class perturbedFenchelYoung(nn.Module):
         self.optmodel = optmodel                
         
 
-    def forward(self, pred_cost: torch.tensor, true_sol: torch.tensor, solver_kwargs: dict = {}):
+    def forward(self, pred_cost: torch.tensor, true_sol: torch.tensor, instance_kwargs: dict = {}):
         """
         Forward pass
         
@@ -416,7 +413,7 @@ class perturbedFenchelYoung(nn.Module):
                             self.optmodel,
                             self.sigma,
                             self.minimize,                                                       
-                            solver_kwargs
+                            instance_kwargs
                         )
         # reduction
         if self.reduction == "mean":
@@ -432,7 +429,8 @@ class perturbedFenchelYoung(nn.Module):
 
 class perturbedFenchelYoungFunc(Function):
     """
-    A autograd function for Fenchel-Young loss using perturbation techniques.
+    A autograd function for Fenchel-Young loss using perturbation techniques with a custom gradient
+    (manual backward).
     """
 
     @staticmethod
@@ -444,7 +442,7 @@ class perturbedFenchelYoungFunc(Function):
             optmodel: callable,
             sigma: float=1.0,                         
             minimize: bool=True,                    
-            solver_kwargs: dict = {}):        
+            instance_kwargs: dict = {}):        
         """
         Forward pass for perturbed Fenchel-Young loss
 
@@ -458,14 +456,14 @@ class perturbedFenchelYoungFunc(Function):
                 optmodel to solve the optimization problem using the predicted cost to get the optimal solution and objective value.
                 It must take in:                                 
                     - pred_cost (torch.tensor): predicted coefficients/parameters for optimization model
-                    - solver_kwargs (dict): a dictionary of additional arrays of data that the solver
+                    - instance_kwargs (dict): a dictionary of per-sample arrays of data that define each optimization instance
                 It must also:
                     - detach tensors if necessary
                     - loop or batch data solve 
                 In practice, the user should wrap their own optmodel in the decision_learning.utils.handle_solver function so that
                 these are all taken care of.
             minimize (bool): whether the optimization problem is minimization or maximization              
-            solver_kwargs (dict): a dictionary of additional arrays of data that the solver
+            instance_kwargs (dict): a dictionary of per-sample arrays of data that define each optimization instance
 
         Returns:
             torch.tensor: solution expectations with perturbation
@@ -500,7 +498,7 @@ class perturbedFenchelYoungFunc(Function):
         # solve optimization problem to obtain optimal sol/obj val from perturbed costs (based on predicted costs), 
         # where now ptb_c[k, :] is k = i*j example that is the ith perturbed cost sample for the jth batch sample
         ptb_sols, ptb_obj = optmodel(ptb_c,                                     
-                solver_kwargs=solver_kwargs) 
+                instance_kwargs=instance_kwargs) 
                  
         # reshape back to (n_samples, batch_size, sol_vector_dim) where ptb_sols[i, j, :] is the ith perturbed solution sample for the jth batch sample to get back to original data shape
         ptb_sols = ptb_sols.reshape(n_samples, -1, ptb_sols.shape[1])
