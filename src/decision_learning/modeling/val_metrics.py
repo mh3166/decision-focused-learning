@@ -8,7 +8,7 @@ def decision_regret(pred_cost: torch.tensor,
         true_obj: np.ndarray,
         optmodel: callable,
         minimize: bool=True,        
-        solver_kwargs: dict = {}):
+        instance_kwargs: dict = {}):
     """To calculate the decision regret based on predicted coefficients/parameters for optimization model, we need following:
     1. predicted coefficients/parameters for optimization model    
     2. true coefficients/parameters for optimization model (needed to calculate objective value under the optimal solutions induced by predicted coefficients)
@@ -23,16 +23,16 @@ def decision_regret(pred_cost: torch.tensor,
                 optmodel to solve the optimization problem using the predicted cost to get the optimal solution and objective value.
                 It must take in:                                 
                     - pred_cost (torch.tensor): predicted coefficients/parameters for optimization model
-                    - solver_kwargs (dict): a dictionary of additional arrays of data that the solver
+                    - instance_kwargs (dict): a dictionary of per-sample arrays of data that define each instance and that the solver
                 It must also:
                     - detach tensors if necessary
                     - loop or batch data solve 
                 In practice, the user should wrap their own optmodel in the decision_learning.utils.handle_solver function so that
                 these are all taken care of.        
-        solver_kwargs (dict): a dictionary of additional arrays of data that the solver
+        instance_kwargs (dict): a dictionary of per-sample arrays of data that define each instance and that the solver
     """    
     # get batch's current optimal solution value and objective vvalue based on the predicted cost
-    w_hat, z_hat = optmodel(pred_cost, **solver_kwargs)
+    w_hat, z_hat = optmodel(pred_cost, **instance_kwargs)
 
     # To ensure consistency, convert everything into a pytorch tensor on the same device as pred_cost
     device = pred_cost.device if isinstance(pred_cost, torch.Tensor) else 'cpu'

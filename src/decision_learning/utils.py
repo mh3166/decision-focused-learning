@@ -4,6 +4,7 @@ from functools import wraps
 
 import numpy as np
 import torch 
+import numpy as np
 
 import logging 
 logger = logging.getLogger(__name__)
@@ -12,7 +13,7 @@ logger.setLevel(logging.INFO)
 
 def handle_solver(pred_cost: torch.tensor,                   
                 optmodel: callable, 
-                solver_kwargs: dict={},                
+                instance_kwargs: dict={},                
                 detach_tensor: bool=True,
                 solver_batch_solve: bool=False):
     """Wrapper function to handle calling the optimization model solver. It will handle the following:
@@ -20,23 +21,23 @@ def handle_solver(pred_cost: torch.tensor,
     2. If solver_batch_solve is True, it will passs the entire batch of data to the optimization model solver 
     otherwise it will call the optimization model solver for each data point in the batch
     
-    Handling solver_kwargs:
-    We expect solver_kwargs to be a dictionary of additional arrays of data that the solver may need, 
+    Handling instance_kwargs:
+    We expect instance_kwargs to be a dictionary of per-sample arrays of data that define each instance and that the solver may need, 
     ex: {'coef_matrix': [B, N, M]}, where B is the batch size, N is the number of rows in the matrix, and M is the number of columns in the matrix.
-        In this case, solver_kwargs['coef_matrix'][i] will be the coef_matrix for the i-th data point in the batch.                    
+        In this case, instance_kwargs['coef_matrix'][i] will be the coef_matrix for the i-th data point in the batch.                    
     In this case, we will filter out the invalid arguments for the optimization model solver, 
     and then depending on solver_batch_solve:
         - if solver_batch_solve is True, we will pass the entire batch of data to the optimization model solver
         - if solver_batch_solve is False, we will call the optimization model solver for each data point in the batch
-            by extracting the i-th data point from solver_kwargs for each key in solver_kwargs
+            by extracting the i-th data point from instance_kwargs for each key in instance_kwargs
             
     Args:
         optmodel (callable): optimization model
         pred_cost (dict): predicted coefficients/parameters for optimization model
-        solver_kwargs (dict): a dictionary of additional arrays of data that the solver
-            may need to solve the optimization model. For example, solver_kwargs could look like:
+        instance_kwargs (dict): a dictionary of per-sample arrays of data that define each instance and that the solver
+            may need to solve the optimization model. For example, instance_kwargs could look like:
             {'coef_matrix': [B, N, M]}, where B is the batch size, N is the number of rows in the matrix, and M is the number of columns in the matrix.
-            In this case, solver_kwargs['coef_matrix'][i] will be the coef_matrix for the i-th data point in the batch.                    
+            In this case, instance_kwargs['coef_matrix'][i] will be the coef_matrix for the i-th data point in the batch.                    
         detach_tensor (bool): whether to detach the tensors and convert them to numpy arrays
         solver_batch_solve (bool): whether to pass the entire batch of data to the optimization model solver
 
@@ -46,24 +47,24 @@ def handle_solver(pred_cost: torch.tensor,
     if detach_tensor:
         pred_cost = pred_cost.detach().cpu().numpy()
         
-        for key in solver_kwargs:
-            if isinstance(solver_kwargs[key], torch.Tensor):
-                solver_kwargs[key] = solver_kwargs[key].detach().cpu().numpy()
+        for key in instance_kwargs:
+            if isinstance(instance_kwargs[key], torch.Tensor):
+                instance_kwargs[key] = instance_kwargs[key].detach().cpu().numpy()
 
-    # double check to ensure solver_kwargs only contains valid arguments for optmodel          
-    solver_kwargs = filter_kwargs(optmodel, solver_kwargs)    
+    # double check to ensure instance_kwargs only contains valid arguments for optmodel          
+    instance_kwargs = filter_kwargs(optmodel, instance_kwargs)    
     if solver_batch_solve:                
-        sol, obj = optmodel(pred_cost, **solver_kwargs)
+        sol, obj = optmodel(pred_cost, **instance_kwargs)
         
     else:
         # if solver is not batch solve, we will call the solver for each data point in the batch
         sol = []
         obj = []
         for i in range(pred_cost.shape[0]): 
-            # extract the i-th data point from solver_kwargs for each key in solver_kwargs
-            cur_solver_kwargs = {k: v[i] for k, v in solver_kwargs.items()}
+            # extract the i-th data point from instance_kwargs for each key in instance_kwargs
+            cur_instance_kwargs = {k: v[i] for k, v in instance_kwargs.items()}
             
-            sol_i, obj_i = optmodel(pred_cost[i], **cur_solver_kwargs)
+            sol_i, obj_i = optmodel(pred_cost[i], **cur_instance_kwargs)
             sol.append(sol_i)
             obj.append(obj_i)
         sol = np.array(sol)

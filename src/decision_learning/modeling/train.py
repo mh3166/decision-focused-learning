@@ -45,7 +45,7 @@ class GenericDataset(Dataset):
         - kwargs: dictionary containing input data
         """
         # Store all kwargs as attributes and convert to torch.tensor
-        self.solver_kwargs = kwargs.pop('solver_kwargs', {})
+        self.instance_kwargs = kwargs.pop('instance_kwargs', {})
         self.data = {key: torch.as_tensor(value, dtype=torch.float32) if not isinstance(value, torch.Tensor) else value
                      for key, value in kwargs.items()}
         
@@ -58,7 +58,7 @@ class GenericDataset(Dataset):
     def __getitem__(self, idx):
         # Retrieve item for each key at the specified index
         item = {key: value[idx] for key, value in self.data.items()}
-        item['solver_kwargs'] = {key: value[idx] for key, value in self.solver_kwargs.items()}
+        item['instance_kwargs'] = {key: value[idx] for key, value in self.instance_kwargs.items()}
         return item
     
     
@@ -131,7 +131,7 @@ def train(pred_model: nn.Module,
                 optmodel to solve the optimization problem using the predicted cost to get the optimal solution and objective value.
                 It must take in:                                 
                     - pred_cost (torch.tensor): predicted coefficients/parameters for optimization model
-                    - solver_kwargs (dict): a dictionary of additional arrays of data that the solver
+                    - instance_kwargs (dict): a dictionary of per-sample arrays of data that define each instance and that the solver
                 It must also:
                     - detach tensors if necessary
                     - loop or batch data solve 
@@ -188,7 +188,7 @@ def train(pred_model: nn.Module,
             # move data to appropriate device. Assume that the collate_fn function in the dataset object will return a
             # dictionary with 'X' as the key for the features and remaining keys for other data required for specific loss fn
             for key in batch:
-                if not isinstance(batch[key], dict): # don't move solver_kwargs to device since it is not important for pred_model and not a tensor
+                if not isinstance(batch[key], dict): # don't move instance_kwargs to device since it is not important for pred_model and not a tensor
                     batch[key] = batch[key].to(device)
             
             # forward pass
@@ -279,7 +279,7 @@ def calc_test_regret(pred_model: nn.Module,
                 optmodel to solve the optimization problem using the predicted cost to get the optimal solution and objective value.
                 It must take in:                                 
                     - pred_cost (torch.tensor): predicted coefficients/parameters for optimization model
-                    - solver_kwargs (dict): a dictionary of additional arrays of data that the solver
+                    - instance_kwargs (dict): a dictionary of per-sample arrays of data that define each instance and that the solver
                 It must also:
                     - detach tensors if necessary
                     - loop or batch data solve 
@@ -295,12 +295,12 @@ def calc_test_regret(pred_model: nn.Module,
         X = torch.tensor(test_data_dict['X'], dtype=torch.float32)
         pred = pred_model(X)
         
-        solver_kwargs = test_data_dict.get('solver_kwargs', {})      
+        instance_kwargs = test_data_dict.get('instance_kwargs', {})      
         regret = decision_regret(pred,
                                 true_cost=test_data_dict['true_cost'],
                                 true_obj=test_data_dict['true_obj'],
                                 optmodel=optmodel,
                                 minimize=minimize,                                
-                                solver_kwargs=solver_kwargs)
+                                instance_kwargs=instance_kwargs)
         
     return regret
