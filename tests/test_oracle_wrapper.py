@@ -18,7 +18,7 @@ def box_oracle_single(t: np.ndarray, b: np.ndarray):
     return z, obj
 
 
-def test_oracle_wrapper_correctness():
+def test_oracle_wrapper_batch_correctness():
     # Exercise the toy box oracle through handle_solver; 
     #verify shape, objective consistency, b sensitivity, and deterministic outputs.
     t = torch.tensor([[-1.0, 2.0], [0.0, -3.0], [1.0, 1.0]])
@@ -27,7 +27,7 @@ def test_oracle_wrapper_correctness():
     sol, obj = handle_solver(
         t,
         optmodel=box_oracle_batch,
-        solver_kwargs={"b": b},
+        instance_kwargs={"b": b},
         solver_batch_solve=True,
     )
 
@@ -42,7 +42,7 @@ def test_oracle_wrapper_correctness():
     sol_repeat, obj_repeat = handle_solver(
         t,
         optmodel=box_oracle_batch,
-        solver_kwargs={"b": b},
+        instance_kwargs={"b": b},
         solver_batch_solve=True,
     )
     assert np.array_equal(sol, sol_repeat)
@@ -52,7 +52,7 @@ def test_oracle_wrapper_correctness():
     sol_changed, _ = handle_solver(
         t,
         optmodel=box_oracle_batch,
-        solver_kwargs={"b": b_changed},
+        instance_kwargs={"b": b_changed},
         solver_batch_solve=True,
     )
     assert not np.array_equal(sol, sol_changed)
@@ -65,7 +65,7 @@ def test_oracle_wrapper_single_correctness():
     sol, obj = handle_solver(
         t,
         optmodel=box_oracle_single,
-        solver_kwargs={"b": b},
+        instance_kwargs={"b": b},
         solver_batch_solve=False,
     )
 
@@ -80,7 +80,7 @@ def test_oracle_wrapper_single_correctness():
     sol_repeat, obj_repeat = handle_solver(
         t,
         optmodel=box_oracle_single,
-        solver_kwargs={"b": b},
+        instance_kwargs={"b": b},
         solver_batch_solve=False,
     )
     assert np.array_equal(sol, sol_repeat)
@@ -90,7 +90,7 @@ def test_oracle_wrapper_single_correctness():
     sol_changed, _ = handle_solver(
         t,
         optmodel=box_oracle_single,
-        solver_kwargs={"b": b_changed},
+        instance_kwargs={"b": b_changed},
         solver_batch_solve=False,
     )
     assert not np.array_equal(sol, sol_changed)
