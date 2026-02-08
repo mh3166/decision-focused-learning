@@ -4,8 +4,82 @@ import copy
 from torch.autograd import Function
 from torch.utils.data import Dataset
 import numpy as np
-from decision_learning.utils import handle_solver, CILO_lbda
+from decision_learning.utils import handle_solver
 from decision_learning.modeling.perturbed import PerturbedOpt
+
+
+def CILO_lbda(
+    pred_cost: torch.Tensor,
+    Y: torch.Tensor,
+    optmodel,
+    beta: float,
+    *,
+    kwargs: dict | None = None,
+    sens: float = 1e-4,
+    init_upper: float = 1e-2,
+    max_expand: int = 50,
+    max_bisect: int = 200,
+) -> float:
+    """
+    Find lambda >= 0 such that mean_i <Y_i, x_i(lambda)> - beta ~= 0,
+    where x_i(lambda) is returned by optmodel(pred_cost + lambda * Y).
+
+    Uses:
+      1) Exponential search to bracket a sign change
+      2) Bisection to solve to tolerance
+
+    Note: res_u and res_l are not necessary, but may be useful for debugging
+    """
+    if kwargs is None:
+        kwargs = {}
+
+    def residual(lbda: float) -> float:
+        sol, _ = optmodel(pred_cost + lbda * Y, **kwargs)  # sol: (batch, d)
+        # mean over batch of dot(Y_i, sol_i)
+        return (torch.sum(Y * sol, dim=1).mean() - beta).item()
+
+    # ---- 1) Bracket root: find [lbda_l, lbda_u] with res(l) > 0 and res(u) <= 0 ----
+    lbda_l = 0.0
+    lbda_u = float(init_upper)
+
+    res_u = residual(lbda_u)
+    expand_steps = 0
+    while res_u > 0 and expand_steps < max_expand:
+        lbda_l = lbda_u
+        lbda_u *= 2.0
+        res_u = residual(lbda_u)
+        expand_steps += 1
+
+    # If we never found res_u <= 0, we can't bracket; return best effort upper.
+    if res_u > 0:
+        return lbda_u
+
+    # ---- 2) Bisection on bracket ----
+    res_l = residual(lbda_l)  # should typically be > 0 for a proper bracket
+    lbda = 0.5 * (lbda_l + lbda_u)
+
+    for _ in range(max_bisect):
+        res_mid = residual(lbda)
+
+        if abs(res_mid) <= sens:
+            break
+
+        # Maintain invariant: res(l) > 0, res(u) <= 0
+        if res_mid > 0:
+            lbda_l, res_l = lbda, res_mid
+        else:
+            lbda_u, res_u = lbda, res_mid
+
+        new_lbda = 0.5 * (lbda_l + lbda_u)
+
+        # Optional early stop: interval too small and we're on the feasible side
+        if abs(new_lbda - lbda) < sens and res_mid <= 0:
+            lbda = new_lbda
+            break
+
+        lbda = new_lbda
+
+    return float(lbda)
 
 # -------------------------------------------------------------------------
 # SPO Plus (Smart Predict and Optimize Plus) Loss
@@ -376,7 +450,7 @@ class PGLossFunc(Function):
 # Adaptive PG Loss
 # -------------------------------------------------------------------------
 
-class PG_Loss_Apt(nn.Module):
+class PG_Loss_Adaptive(nn.Module):
     """
     Adaptive PG loss where the perturbation scale h is chosen via CILO_lbda
     based on the current batch. pred_cost is computed externally and passed in.
@@ -886,76 +960,6 @@ class CILO_Loss(nn.Module):
         else:
             raise ValueError("No reduction '{}'.".format(self.reduction))
         return loss
-
-
-class VFunc(Function):
-    """
-    Autograd function that returns the objective value (or its negation) as loss.
-    """
-
-    @staticmethod
-    def forward(ctx, 
-            cost: torch.tensor, 
-            optmodel: callable,
-            minimize: bool = True,            
-            instance_kwargs: dict = {}):            
-        """
-        Forward pass that evaluates the optimization objective.
-
-        Args:
-            cost (torch.tensor): a batch of cost vectors
-            optmodel (callable): a function/class that solves an optimization problem using pred_cost. For every batch of data, we use
-                optmodel to solve the optimization problem using the predicted cost to get the optimal solution and objective value.
-                It must take in:                                 
-                    - pred_cost (torch.tensor): predicted coefficients/parameters for optimization model
-                    - instance_kwargs (dict): a dictionary of per-sample arrays of data that define each optimization instance
-                It must also:
-                    - detach tensors if necessary
-                    - loop or batch data solve 
-                In practice, the user should wrap their own optmodel in the decision_learning.utils.handle_solver function so that
-                these are all taken care of.
-            minimize (bool): whether the optimization problem is minimization or maximization         
-            instance_kwargs (dict): a dictionary of per-sample arrays of data that define each optimization instance
-            
-            
-        Returns:
-            torch.tensor: objective value (or its negation)
-        """        
-        # detach (stops gradient tracking since we will compute custom gradient) and move to cpu. Do this since
-        # generally the optmodel is probably cpu based
-        c = cost 
-
-        # solve optimization problems
-        # Plus Perturbation Optimization Problem
-        sol, obj = optmodel(c, **instance_kwargs)
-
-        
-        # calculate loss
-        loss = obj
-        if not minimize:
-            loss = - loss
-                
-        # save solutions and objects needed for backwards pass to compute gradients
-        ctx.save_for_backward(sol)        
-        ctx.minimize = minimize
-        return loss
-
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        """
-        Backward pass for PG Loss
-        """
-        sol = ctx.saved_tensors
-
-        # below, need to move (sol_plus - sol_minus) to the same device as grad_output since sol_plus and sol_minus
-        # are on cpu and it is possible that grad_output is on a different device
-        grad = (sol).to(grad_output.device)
-        if not ctx.minimize: # maximization problem case
-            grad = - grad
-        
-        return grad_output * grad, None, None, None, None, None, None, None
-    
 
 
 # -------------------------------------------------------------------------
