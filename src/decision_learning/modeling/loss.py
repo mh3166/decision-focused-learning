@@ -70,7 +70,7 @@ class SPOPlus(nn.Module):
             true_obj: torch.tensor,
             instance_kwargs: dict = {}):
         """
-        Forward pass
+        Forward pass.
         
         Args:            
             pred_cost (torch.tensor): a batch of predicted values of the cost            
@@ -126,7 +126,7 @@ class SPOPlusFunc(Function):
             minimize: bool = True,            
             instance_kwargs: dict = {}):
         """
-        Forward pass for SPO+
+        Forward pass for SPO+.
 
         Args:
             ctx: Context object to store information for backward computation
@@ -217,7 +217,7 @@ class PG_Loss(nn.Module):
                 In practice, the user should wrap their own optmodel in the decision_learning.utils.handle_solver function so that
                 these are all taken care of.
             h (float): perturbation size/finite difference step size for zeroth order gradient approximation
-            finite_diff_sch (str, optional): Specify type of finite-difference scheme:
+            finite_diff_type (str, optional): Specify type of finite-difference scheme:
                                             - Backward Differencing/PGB ('B')
                                             - Central Differencing/PGC ('C')
                                             - Forward Differencing/PGF ('F')
@@ -245,7 +245,7 @@ class PG_Loss(nn.Module):
             true_cost: torch.tensor,
             instance_kwargs: dict = {}):
         """
-        Forward pass
+        Forward pass.
         
         Args:            
             pred_cost (torch.tensor): a batch of predicted values of the cost            
@@ -288,13 +288,13 @@ class PGLossFunc(Function):
             minimize: bool = True,            
             instance_kwargs: dict = {}):            
         """
-        Forward pass for PG Loss
+        Forward pass for PG Loss.
 
         Args:
             pred_cost (torch.tensor): a batch of predicted values of the cost
             true_cost (torch.tensor): a batch of true values of the cost
             h (float): perturbation size/finite difference step size for zeroth order gradient approximation
-            finite_diff_sch (str, optional): Specify type of finite-difference scheme:
+            finite_diff_type (str, optional): Specify type of finite-difference scheme:
                                             - Backward Differencing/PGB ('B')
                                             - Central Differencing/PGC ('C')
                                             - Forward Differencing/PGF ('F')
@@ -378,12 +378,8 @@ class PGLossFunc(Function):
 
 class PG_Loss_Apt(nn.Module):
     """
-    PG(f_theta(w); c, h, theta0) =
-      ( <f_theta(w), x(f_theta0(w))> - <f_theta(w) - h c, x(f_theta(w) - h c)> ) / h
-
-    - pred_cost = f_theta(w) is passed in (computed outside).
-    - model is passed in so we can snapshot it periodically as the fixed model0.
-    - w is passed in so we can compute f_theta0(w) using the saved model0.
+    Adaptive PG loss where the perturbation scale h is chosen via CILO_lbda
+    based on the current batch. pred_cost is computed externally and passed in.
     """
     def __init__(self, optmodel, 
                     beta: float,
@@ -480,8 +476,6 @@ class perturbedFenchelYoung(nn.Module):
             seed (int): random state seed, since we are sampling for perturbation
             reduction (str): the reduction to apply to the output
             minimize (bool): whether the optimization problem is minimization or maximization     
-            detach_tensor (bool): whether to detach the tensors and convert them to numpy arrays before passing to the optimization model solver
-            solver_batch_solve (bool): whether to pass the entire batch of data to the optimization model solver           
         """
         super(perturbedFenchelYoung, self).__init__()
         
@@ -496,7 +490,7 @@ class perturbedFenchelYoung(nn.Module):
 
     def forward(self, pred_cost: torch.tensor, true_sol: torch.tensor, instance_kwargs: dict = {}):
         """
-        Forward pass
+        Forward pass.
         
         Args:
             pred_cost (torch.tensor): a batch of predicted values of the cost
@@ -540,7 +534,7 @@ class perturbedFenchelYoungFunc(Function):
             minimize: bool=True,                    
             instance_kwargs: dict = {}):        
         """
-        Forward pass for perturbed Fenchel-Young loss
+        Forward pass for perturbed Fenchel-Young loss.
 
         Args:
             pred_cost (torch.tensor): a batch of predicted values of the cost
@@ -833,12 +827,8 @@ class PG_DCA_Loss(nn.Module):
 
 class CILO_Loss(nn.Module):
     """
-    PG(f_theta(w); c, h, theta0) =
-      ( <f_theta(w), x(f_theta0(w))> - <f_theta(w) - h c, x(f_theta(w) - h c)> ) / h
-
-    - pred_cost = f_theta(w) is passed in (computed outside).
-    - model is passed in so we can snapshot it periodically as the fixed model0.
-    - w is passed in so we can compute f_theta0(w) using the saved model0.
+    CILO-style loss where the perturbation scale is chosen via CILO_lbda.
+    pred_cost is computed externally and passed in.
     """
     def __init__(self, optmodel, 
                     beta: float,
@@ -900,7 +890,7 @@ class CILO_Loss(nn.Module):
 
 class VFunc(Function):
     """
-    A autograd function for Perturbation Gradient (PG) Loss.
+    Autograd function that returns the objective value (or its negation) as loss.
     """
 
     @staticmethod
@@ -910,16 +900,10 @@ class VFunc(Function):
             minimize: bool = True,            
             instance_kwargs: dict = {}):            
         """
-        Forward pass for PG Loss
+        Forward pass that evaluates the optimization objective.
 
         Args:
-            pred_cost (torch.tensor): a batch of predicted values of the cost
-            true_cost (torch.tensor): a batch of true values of the cost
-            h (float): perturbation size/finite difference step size for zeroth order gradient approximation
-            finite_diff_sch (str, optional): Specify type of finite-difference scheme:
-                                            - Backward Differencing/PGB ('B')
-                                            - Central Differencing/PGC ('C')
-                                            - Forward Differencing/PGF ('F')
+            cost (torch.tensor): a batch of cost vectors
             optmodel (callable): a function/class that solves an optimization problem using pred_cost. For every batch of data, we use
                 optmodel to solve the optimization problem using the predicted cost to get the optimal solution and objective value.
                 It must take in:                                 
@@ -935,7 +919,7 @@ class VFunc(Function):
             
             
         Returns:
-            torch.tensor: PG loss
+            torch.tensor: objective value (or its negation)
         """        
         # detach (stops gradient tracking since we will compute custom gradient) and move to cpu. Do this since
         # generally the optmodel is probably cpu based
