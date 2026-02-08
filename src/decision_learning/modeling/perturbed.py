@@ -6,7 +6,7 @@ import numpy as np
 
 class PerturbedOpt(Function):
     """
-    A autograd function for Perturbation Smoothing
+    Autograd function for perturbation-based smoothing of an arbitrary loss.
     """
 	
     @staticmethod
@@ -58,8 +58,9 @@ class PerturbedOpt(Function):
         """
         X: (n, d)
         Returns:
-            X_mc: (n * s, d) or (n * 2s, d) if antithetic=True
-            noise: same shape as X_mc
+            pos_perturbation: (n * s, d)
+            neg_perturbation: (n * s, d) (equals X_rep if antithetic=False)
+            noise: (n * s, d)
         """
         n, d = X.shape
 
@@ -97,26 +98,24 @@ class PerturbedOpt(Function):
             seed: int = 42,
             training: bool = True):
         """
-        Forward pass for SPO+
+        Forward pass for perturbation-smoothed loss.
 
         Args:
             ctx: Context object to store information for backward computation
-            pred_cost (torch.tensor): a batch of predicted values of the cost            
-            optmodel (callable): a function/class that solves an optimization problem using pred_cost. For every batch of data, we use
-                optmodel to solve the optimization problem using the predicted cost to get the optimal solution and objective value.
-                It must take in:                                 
-                    - pred_cost (torch.tensor): predicted coefficients/parameters for optimization model
-                    - instance_kwargs (dict): a dictionary of per-sample arrays of data that define each optimization instance
-                It must also:
-                    - detach tensors if necessary
-                    - loop or batch data solve 
-                In practice, the user should wrap their own optmodel in the decision_learning.utils.handle_solver function so that
-                these are all taken care of.                                
-            minimize (bool): whether the optimization problem is minimization or maximization            
-            instance_kwargs (dict): a dictionary of per-sample arrays of data that define each optimization instance
+            pred_cost (torch.tensor): a batch of predicted values of the cost (B, d)
+            loss_args (tuple): extra positional args passed to loss_fn.apply; any tensors or
+                dicts of tensors inside will be repeat_interleaved to match perturbations
+            loss_fn (callable): autograd Function implementing the base loss, called as
+                loss_fn.apply(pred_cost, *loss_args)
+            sigma (float): noise scale for perturbations
+            s (int): number of Monte Carlo samples per instance
+            antithetic (bool): whether to use antithetic sampling
+            control_variate (bool): whether to use a control variate baseline
+            seed (int): RNG seed for perturbations
+            training (bool): whether to save tensors for backward pass
             
         Returns:
-            torch.tensor: SPO+ loss
+            torch.tensor: perturbation-smoothed loss per batch element
         """  
 
         batch_size = pred_cost.shape[0]
@@ -162,7 +161,7 @@ class PerturbedOpt(Function):
     @staticmethod
     def backward(ctx, grad_output):
         """
-        Backward pass for Perturbation Smoothed Function
+        Backward pass for perturbation-smoothed loss (grad w.r.t. pred_cost only).
         """
         loss_out_pos, loss_out_neg, noise_out, cv_loss = ctx.saved_tensors
         s = ctx.s

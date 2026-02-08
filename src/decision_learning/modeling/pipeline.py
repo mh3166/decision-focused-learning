@@ -41,9 +41,11 @@ def lossfn_experiment_data_pipeline(X: Union[np.ndarray, torch.tensor],
     Args:
         X (Union[np.ndarray, torch.tensor]): features
         true_cost (Union[np.ndarray, torch.tensor]): true cost
-        optmodel (callable): optimization model that takes in true_cost and returns optimal solution and objective
+        optmodel (callable): optimization model that takes in true_cost and returns optimal solution and objective.
+            This function is called as optmodel(true_cost, **instance_kwargs).
         user_def_loss_inputs (dict): additional dictionary of inputs for a user-defined loss function
-        instance_kwargs (dict): a dictionary of per-sample arrays of data that define each instance and that the solver may need to solve the optimization model.
+        instance_kwargs (dict): dictionary of per-sample arrays defining each instance. Values are expected to align
+            with true_cost along the batch dimension and are splatted into optmodel.
 
     Returns:
         dict: dictionary with keys "X", "true_cost", "true_sol", "true_obj", "instance_kwargs" for consistency across loss functions
@@ -63,7 +65,8 @@ def train_val_spl(train_d: dict, val_split_params: dict={'test_size':0.2, 'rando
     instance_kwargs case
 
     Args:
-        train_d (dict): dictionary of input data
+        train_d (dict): dictionary of input data. All non-dict values are expected to be array-like and
+            will be split with identical indices. instance_kwargs is split per key to preserve alignment.
     """
     # if no seed in val_split_params, set a seed so that the split idx's are all the same across different key, value pairs
     if 'random_state' not in val_split_params:
@@ -111,7 +114,7 @@ def existing_lossfn_data_preprocess(loss_name: str, data_dict: dict):
         data_dict['target'] = data_dict['true_cost'] # nn.MSE takes target argument as the true label to be predicted, which is the true cost 
     elif loss_name == "Cosine": # nn.CosineEmbeddingLoss takes input2 and target arguments
         data_dict['input2'] = data_dict['true_cost'] # input2 is the true cost
-        data_dict['target'] = torch.ones(data_dict['true_cost'].shape[0]) # target is a tensor of ones
+        data_dict['target'] = torch.ones(data_dict['true_cost'].shape[0]) # target is a tensor of ones (CPU)
         
     return data_dict 
 
@@ -160,7 +163,8 @@ def lossfn_experiment_pipeline(X_train: Union[np.ndarray, torch.tensor],
         X_test (Union[np.ndarray, torch.tensor]): test features
         true_cost_test (Union[np.ndarray, torch.tensor]): test true cost
         predmodel (callable): pytorch prediction model
-        optmodel (callable): optimization model that takes in true_cost and returns optimal solution and objective
+        optmodel (callable): optimization model called as optmodel(cost, **instance_kwargs) that returns
+            an optimal solution and objective for the provided costs.
         
         train_instance_kwargs (dict, optional): train data - a dictionary of per-sample arrays of data that define each instance and that the solver may need to solve the optimization model.
         test_instance_kwargs (dict, optional): test data - a dictionary of per-sample arrays of data that define each instance and that the solver may need to solve the optimization model.
@@ -171,7 +175,7 @@ def lossfn_experiment_pipeline(X_train: Union[np.ndarray, torch.tensor],
         loss_configs (dict, optional): dictionary mapping from loss_name (key) to a dictionary of different hyperparameters that are then grid searched over. 
             Ex: {'PG': {'h':[num_data**-.125, num_data**-.25, num_data**-.5, num_data**-1], 'finite_diff_type': ['B', 'C', 'F']}}
             The assumption is the hyperparameter grid generated per loss function would not be too big. Defaults to {}.
-        user_defined_loss_inputs (List[dict], optional): list of user-defined loss function configurations to run through the train function as part of experient pipeline. Because it is provided by the user,
+        user_defined_loss_inputs (List[dict], optional): list of user-defined loss function configurations to run through the train function as part of experiment pipeline. Because it is provided by the user,
             user is expected to provide inputs in the form:
             {'loss_name': name of the loss function, 
             'loss': a callable loss function,
@@ -196,11 +200,6 @@ def lossfn_experiment_pipeline(X_train: Union[np.ndarray, torch.tensor],
             }. 
             If not provided, function uses above dict as default values.
         
-        handle_solver_func (callable): a function that handles the optimization model solver. This function must take in:
-                - optmodel (callable): optimization model
-                - pred_cost (torch.tensor): predicted coefficients/parameters for optimization model
-                - instance_kwargs (dict): a dictionary of per-sample arrays of data that define each instance and that the solver
-                    
         save_models (bool, optional): flag to save models or not. If we are searching over many hyperparameters/loss function/models, 
                                     may be impractical to store all of them since we may not be able to fit it in all in memory. 
                                     However, this may be useful for storing select models in memory that can then be used as initialization points for other
