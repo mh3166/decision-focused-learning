@@ -21,7 +21,8 @@ def test_shortest_path_solver_smoke():
     )
 
     costs = torch.tensor(generated["cost"], dtype=torch.float32)
-    sol, obj = opt_oracle(costs, size=grid[0])
+    size = torch.full((costs.shape[0],), grid[0], dtype=torch.float32)
+    sol, obj = opt_oracle(costs, size=size)
 
     assert sol.shape[0] == costs.shape[0]
     assert sol.shape[1] == costs.shape[1]

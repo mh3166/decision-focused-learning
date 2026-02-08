@@ -3,11 +3,54 @@ import torch
 
 
 def opt_oracle(costs, size, sens_init=0.0001, sens_upper = 100, epsilon = 1e-6):
+    """
+        Args:
+            costs (torch.tensor | np.ndarray): cost vector(s). If batched, shape (B, d). If single, shape (d,).
+            size (int | float | torch.tensor | np.ndarray): grid size. If costs is batched, must be a 1D array/tensor
+                of length B providing per-sample sizes (all equal). If costs is not batched, must be a scalar.
+            sens_init (float): initial sensitivity parameter
+            sens_upper (float): upper bound for sensitivity search
+            epsilon (float): termination tolerance for sensitivity search
+    """
+    costs_ndim = getattr(costs, "ndim", None)
+    if costs_ndim is None:
+        raise ValueError("costs must be 1D (single instance) or 2D (batched).")
+    batch_size = costs.shape[0] if costs_ndim == 2 else None
+
+    def _all_equal(vec):
+        eq = vec == vec[0]
+        if hasattr(eq, "all"):
+            eq = eq.all()
+        if hasattr(eq, "item"):
+            eq = eq.item()
+        return bool(eq)
+
+    if costs_ndim == 2:
+        size_ndim = getattr(size, "ndim", None)
+        if size_ndim != 1 or size.shape[0] != batch_size:
+            raise ValueError("When costs is batched, size must be a 1D array/tensor with length batch_size.")
+        if not _all_equal(size):
+            raise ValueError("Current implementation of solver only supports batching on identically sized grids.")
+        _size = size[0]
+    elif costs_ndim == 1:
+        size_ndim = getattr(size, "ndim", None)
+        if size_ndim not in (None, 0):
+            raise ValueError("When costs is not batched, size must be a scalar.")
+        _size = size if size_ndim is None else size.item()
+    else:
+        raise ValueError("costs must be 1D (single instance) or 2D (batched).")
+
+    size_float = float(_size)
+    size_int = int(round(size_float))
+    if abs(size_float - size_int) > 1e-6:
+        raise ValueError("size must be an integer-valued scalar.")
+    _size = size_int
+
     sens = sens_init
     a = sens_init
     b = sens_upper
-    sol_size = 2*(size - 1)
-    sol, obj = _sp_solver_func(costs, size, sens)
+    sol_size = 2*(_size - 1)
+    sol, obj = _sp_solver_func(costs, _size, sens)
     sol_below_out = torch.sum(1*(torch.sum(sol, axis = 1) < sol_size))
     sol_above_out = torch.sum(1*(torch.sum(sol, axis = 1) > sol_size))
     while(sol_below_out + sol_above_out > 0):
@@ -19,7 +62,7 @@ def opt_oracle(costs, size, sens_init=0.0001, sens_upper = 100, epsilon = 1e-6):
             sens = (a + sens)*0.5
             b = last_sens
         
-        sol, obj = _sp_solver_func(costs, size, sens)
+        sol, obj = _sp_solver_func(costs, _size, sens)
         sol_below_out = torch.sum(1*(torch.sum(sol, axis = 1) < sol_size))
         sol_above_out = torch.sum(1*(torch.sum(sol, axis = 1) > sol_size))
 

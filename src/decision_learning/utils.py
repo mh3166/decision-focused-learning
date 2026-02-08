@@ -12,19 +12,19 @@ logger.setLevel(logging.INFO)
 
 
 def handle_solver(pred_cost: torch.tensor,                   
-                optmodel: callable, 
-                instance_kwargs: dict={},                
+                optmodel: callable,
                 detach_tensor: bool=True,
-                solver_batch_solve: bool=False):
+                solver_batch_solve: bool=False,
+                **instance_kwargs):
     """Wrapper function to handle calling the optimization model solver. It will handle the following:
     1. Detach the tensors and convert them to numpy arrays if needed
     2. If solver_batch_solve is True, it will passs the entire batch of data to the optimization model solver 
     otherwise it will call the optimization model solver for each data point in the batch
     
     Handling instance_kwargs:
-    We expect instance_kwargs to be a dictionary of per-sample arrays of data that define each instance and that the solver may need, 
-    ex: {'coef_matrix': [B, N, M]}, where B is the batch size, N is the number of rows in the matrix, and M is the number of columns in the matrix.
-        In this case, instance_kwargs['coef_matrix'][i] will be the coef_matrix for the i-th data point in the batch.                    
+    We expect instance_kwargs to be passed as keyword arguments of per-sample arrays of data that define each instance and that the solver may need,
+    ex: coef_matrix=[B, N, M], where B is the batch size, N is the number of rows in the matrix, and M is the number of columns in the matrix.
+        In this case, instance_kwargs['coef_matrix'][i] will be the coef_matrix for the i-th data point in the batch.
     In this case, we will filter out the invalid arguments for the optimization model solver, 
     and then depending on solver_batch_solve:
         - if solver_batch_solve is True, we will pass the entire batch of data to the optimization model solver
@@ -34,12 +34,11 @@ def handle_solver(pred_cost: torch.tensor,
     Args:
         optmodel (callable): optimization model
         pred_cost (dict): predicted coefficients/parameters for optimization model
-        instance_kwargs (dict): a dictionary of per-sample arrays of data that define each instance and that the solver
-            may need to solve the optimization model. For example, instance_kwargs could look like:
-            {'coef_matrix': [B, N, M]}, where B is the batch size, N is the number of rows in the matrix, and M is the number of columns in the matrix.
-            In this case, instance_kwargs['coef_matrix'][i] will be the coef_matrix for the i-th data point in the batch.                    
         detach_tensor (bool): whether to detach the tensors and convert them to numpy arrays
         solver_batch_solve (bool): whether to pass the entire batch of data to the optimization model solver
+        **instance_kwargs: per-sample arrays of data that define each instance and that the solver may need to solve the optimization model.
+            For example, instance_kwargs could include coef_matrix=[B, N, M], where B is the batch size, N is the number of rows in the matrix,
+            and M is the number of columns in the matrix. In this case, instance_kwargs['coef_matrix'][i] will be the coef_matrix for the i-th data point.
 
     Returns:
         tuple: optimal solution value and objective value based on the predicted cost
