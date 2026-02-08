@@ -106,14 +106,14 @@ class PerturbedOpt(Function):
                 optmodel to solve the optimization problem using the predicted cost to get the optimal solution and objective value.
                 It must take in:                                 
                     - pred_cost (torch.tensor): predicted coefficients/parameters for optimization model
-                    - solver_kwargs (dict): a dictionary of additional arrays of data that the solver
+                    - instance_kwargs (dict): a dictionary of per-sample arrays of data that define each optimization instance
                 It must also:
                     - detach tensors if necessary
                     - loop or batch data solve 
                 In practice, the user should wrap their own optmodel in the decision_learning.utils.handle_solver function so that
                 these are all taken care of.                                
             minimize (bool): whether the optimization problem is minimization or maximization            
-            solver_kwargs (dict): a dictionary of additional arrays of data that the solver
+            instance_kwargs (dict): a dictionary of per-sample arrays of data that define each optimization instance
             
         Returns:
             torch.tensor: SPO+ loss

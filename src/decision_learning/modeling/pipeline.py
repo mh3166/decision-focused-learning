@@ -29,7 +29,7 @@ if not any(isinstance(handler, logging.StreamHandler) for handler in logger.hand
 def lossfn_experiment_data_pipeline(X: Union[np.ndarray, torch.tensor], 
                                 true_cost: Union[np.ndarray, torch.tensor], 
                                 optmodel: callable,
-                                custom_inputs: dict={},
+                                user_def_loss_inputs: dict={},
                                 instance_kwargs: dict={}):
     """Wrapper function to preprocess data for experiments on loss functions implemented within the code base in decision_learning.modeling.loss
     Since decision-aware/focused problems generally compare the optimal solution/obj under the true_cost vs the solution/obj under the predicted cost,
@@ -42,7 +42,7 @@ def lossfn_experiment_data_pipeline(X: Union[np.ndarray, torch.tensor],
         X (Union[np.ndarray, torch.tensor]): features
         true_cost (Union[np.ndarray, torch.tensor]): true cost
         optmodel (callable): optimization model that takes in true_cost and returns optimal solution and objective
-        custom_inputs (dict): additional dictionary of custom inputs for user-defined loss function
+        user_def_loss_inputs (dict): additional dictionary of inputs for a user-defined loss function
         instance_kwargs (dict): a dictionary of per-sample arrays of data that define each instance and that the solver may need to solve the optimization model.
 
     Returns:
@@ -50,10 +50,10 @@ def lossfn_experiment_data_pipeline(X: Union[np.ndarray, torch.tensor],
     """
     
     sol, obj = optmodel(true_cost, **instance_kwargs) # get optimal solution and objective under true cost
-    final_data = {"X": X, "true_cost": true_cost, "true_sol": sol, "true_obj": obj, "solver_kwargs": solver_kwargs} # wrap data into dictionary
+    final_data = {"X": X, "true_cost": true_cost, "true_sol": sol, "true_obj": obj, "instance_kwargs": instance_kwargs} # wrap data into dictionary
     
-    if custom_inputs:
-        final_data.update(custom_inputs)
+    if user_def_loss_inputs:
+        final_data.update(user_def_loss_inputs)
         
     return final_data
 
@@ -324,14 +324,14 @@ def lossfn_experiment_pipeline(X_train: Union[np.ndarray, torch.tensor],
         
         # -----------------Initial data preprocessing for user-defined loss functions-----------------
         # TODO: add functionality to preprocess data for user-defined loss functions
-        custom_train_d = lossfn_experiment_data_pipeline(X=X_train,
+        user_def_loss_train_d = lossfn_experiment_data_pipeline(X=X_train,
                                 true_cost=true_cost_train, 
                                 optmodel=optmodel,
-                                custom_inputs=user_defined_loss_input['data'], # user-provided data
+                                user_def_loss_inputs=user_defined_loss_input['data'], # user-provided data
                                 instance_kwargs=train_instance_kwargs)    
-        # for custom data, we still need to create train, val split
+        # for user-defined loss data, we still need to create train, val split
         # split train/val data    
-        train_dict, val_dict = train_val_spl(train_d=custom_train_d, val_split_params=val_split_params)        
+        train_dict, val_dict = train_val_spl(train_d=user_def_loss_train_d, val_split_params=val_split_params)        
         # -----------------------------------------------------------------------------------------
         
         #training

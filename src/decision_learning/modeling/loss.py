@@ -80,7 +80,7 @@ class SPOPlus(nn.Module):
 
         """
         if self.smoothing:
-            spop_args = (true_cost, true_sol, true_obj, self.optmodel, self.minimize, solver_kwargs)
+            spop_args = (true_cost, true_sol, true_obj, self.optmodel, self.minimize, instance_kwargs)
             loss = self.perturbedfunc.apply(pred_cost, 
                                             spop_args, 
                                             self.spop, 
@@ -402,14 +402,14 @@ class PG_Loss_Apt(nn.Module):
         X: torch.Tensor,           # inputs to model (needed for model0(X))
         true_cost: torch.Tensor,   # observed cost vectors y used for the PG loss perturbation
         pred_model: nn.Module,     # live model (for snapshot updates)
-        solver_kwargs: dict = {},  # dictionary of arguments to pass to the optimization sovler. 
+        instance_kwargs: dict = {},  # per-sample data defining the optimization instance (e.g., feasible region).
     ):
 
         t = pred_cost
         y = true_cost
 
         with torch.no_grad():
-            h = CILO_lbda(t, y, self.optmodel, self.beta, kwargs=solver_kwargs)
+            h = CILO_lbda(t, y, self.optmodel, self.beta, kwargs=instance_kwargs)
 
         t_plus = t + h * y
 
@@ -417,9 +417,9 @@ class PG_Loss_Apt(nn.Module):
         # Compute reference term using frozen model and new model
         # ----------------------------------------------------
         with torch.no_grad():
-            x_t, obj_t = self.optmodel(t, **solver_kwargs)
+            x_t, obj_t = self.optmodel(t, **instance_kwargs)
             x_t, obj_t = x_t.detach(), obj_t.detach()
-            x_t_plus, obj_t_plus = self.optmodel(t_plus, **solver_kwargs)
+            x_t_plus, obj_t_plus = self.optmodel(t_plus, **instance_kwargs)
             x_t_plus, obj_t_plus = x_t_plus.detach(), obj_t_plus.detach()
 
         term1 = torch.sum(t * x_t_plus, axis = 1)
@@ -779,7 +779,7 @@ class PG_DCA_Loss(nn.Module):
         X: torch.Tensor,           # inputs to model (needed for model0(X))
         true_cost: torch.Tensor,   # observed cost vectors y used for the PG loss perturbation
         pred_model: nn.Module,     # live model (for snapshot updates)
-        solver_kwargs: dict = {},  # dictionary of arguments to pass to the optimization sovler. 
+        instance_kwargs: dict = {},  # per-sample data defining the optimization instance (e.g., feasible region).
     ):
 
         t = pred_cost
@@ -803,9 +803,9 @@ class PG_DCA_Loss(nn.Module):
         # ----------------------------------------------------
         with torch.no_grad():
             t0 = self.model0(X)
-            x_t0, obj_t0 = self.optmodel(t0, **solver_kwargs)
+            x_t0, obj_t0 = self.optmodel(t0, **instance_kwargs)
             x_t0, obj_t0 = x_t0.detach(), obj_t0.detach()
-            x_t_minus, obj_t_minus = self.optmodel(t_minus, **solver_kwargs)
+            x_t_minus, obj_t_minus = self.optmodel(t_minus, **instance_kwargs)
             x_t_minus, obj_t_minus = x_t_minus.detach(), obj_t_minus.detach()
 
         term1 = torch.sum(t * x_t0, axis = 1)
@@ -857,14 +857,14 @@ class CILO_Loss(nn.Module):
         X: torch.Tensor,           # inputs to model (needed for model0(X))
         true_cost: torch.Tensor,   # observed cost vectors y used for the PG loss perturbation
         pred_model: nn.Module,     # live model (for snapshot updates)
-        solver_kwargs: dict = {},  # dictionary of arguments to pass to the optimization sovler. 
+        instance_kwargs: dict = {},  # per-sample data defining the optimization instance (e.g., feasible region).
     ):
 
         t = pred_cost
         y = true_cost
 
         with torch.no_grad():
-            h = CILO_lbda(t, y, self.optmodel, self.beta, kwargs=solver_kwargs)
+            h = CILO_lbda(t, y, self.optmodel, self.beta, kwargs=instance_kwargs)
 
         t_plus = t + h * y
 
@@ -872,9 +872,9 @@ class CILO_Loss(nn.Module):
         # Compute reference term using frozen model and new model
         # ----------------------------------------------------
         with torch.no_grad():
-            x_t, obj_t = self.optmodel(t, **solver_kwargs)
+            x_t, obj_t = self.optmodel(t, **instance_kwargs)
             x_t, obj_t = x_t.detach(), obj_t.detach()
-            x_t_plus, obj_t_plus = self.optmodel(t_plus, **solver_kwargs)
+            x_t_plus, obj_t_plus = self.optmodel(t_plus, **instance_kwargs)
             x_t_plus, obj_t_plus = x_t_plus.detach(), obj_t_plus.detach()
 
         term1 = torch.sum(t * x_t_plus, axis = 1)
@@ -908,7 +908,7 @@ class VFunc(Function):
             cost: torch.tensor, 
             optmodel: callable,
             minimize: bool = True,            
-            solver_kwargs: dict = {}):            
+            instance_kwargs: dict = {}):            
         """
         Forward pass for PG Loss
 
@@ -924,14 +924,14 @@ class VFunc(Function):
                 optmodel to solve the optimization problem using the predicted cost to get the optimal solution and objective value.
                 It must take in:                                 
                     - pred_cost (torch.tensor): predicted coefficients/parameters for optimization model
-                    - solver_kwargs (dict): a dictionary of additional arrays of data that the solver
+                    - instance_kwargs (dict): a dictionary of per-sample arrays of data that define each optimization instance
                 It must also:
                     - detach tensors if necessary
                     - loop or batch data solve 
                 In practice, the user should wrap their own optmodel in the decision_learning.utils.handle_solver function so that
                 these are all taken care of.
             minimize (bool): whether the optimization problem is minimization or maximization         
-            solver_kwargs (dict): a dictionary of additional arrays of data that the solver
+            instance_kwargs (dict): a dictionary of per-sample arrays of data that define each optimization instance
             
             
         Returns:
@@ -943,7 +943,7 @@ class VFunc(Function):
 
         # solve optimization problems
         # Plus Perturbation Optimization Problem
-        sol, obj = optmodel(c, **solver_kwargs)
+        sol, obj = optmodel(c, **instance_kwargs)
 
         
         # calculate loss

@@ -19,10 +19,8 @@ def _build_alignment_data(num_rows: int) -> dict:
     return data
 
 
-def _echo_solver(true_cost, instance_kwargs=None):
+def _echo_solver(true_cost, **instance_kwargs):
     # Dummy solver that returns inputs as outputs to preserve row-wise IDs.
-    if instance_kwargs is None:
-        instance_kwargs = {}
     sol = true_cost.copy()
     obj = true_cost.copy()
     return sol, obj
