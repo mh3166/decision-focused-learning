@@ -19,7 +19,7 @@ def _set_seeds(seed: int) -> None:
 
 
 
-def _run_pipeline(loss_name: str, seed: int = 123, print_metrics: bool = False):
+def _run_pipeline(loss_names, seed: int = 123, print_metrics: bool = False):
     _set_seeds(seed)
 
     n_train = 8
@@ -75,7 +75,7 @@ def _run_pipeline(loss_name: str, seed: int = 123, print_metrics: bool = False):
         train_instance_kwargs=train_instance_kwargs,
         test_instance_kwargs=test_instance_kwargs,
         val_split_params={'test_size': 0.25, 'random_state': seed},
-        loss_names=[loss_name],
+        loss_names=loss_names,
         training_configs={
             'num_epochs': 1,
             'lr': 1e-2,
@@ -91,7 +91,7 @@ def _run_pipeline(loss_name: str, seed: int = 123, print_metrics: bool = False):
     return metrics, trained_models
 
 
-def _assert_metrics(metrics: pd.DataFrame, loss_name: str) -> None:
+def _assert_metrics(metrics: pd.DataFrame, loss_names) -> None:
     assert isinstance(metrics, pd.DataFrame)
     assert not metrics.empty
 
@@ -104,20 +104,16 @@ def _assert_metrics(metrics: pd.DataFrame, loss_name: str) -> None:
         'hyperparameters',
     }
     assert required_columns.issubset(metrics.columns)
-    assert loss_name in set(metrics['loss_name'])
+    for loss_name in loss_names:
+        assert loss_name in set(metrics['loss_name'])
 
     numeric_cols = metrics.select_dtypes(include=[np.number]).columns
     assert len(numeric_cols) > 0
     assert np.isfinite(metrics[numeric_cols].to_numpy()).all()
 
 
-def test_pipeline_smoke_pg():
-    metrics, trained_models = _run_pipeline('PG')
-    _assert_metrics(metrics, 'PG')
-    assert isinstance(trained_models, dict)
-
-
-def test_pipeline_smoke_mse():
-    metrics, trained_models = _run_pipeline('MSE')
-    _assert_metrics(metrics, 'MSE')
+def test_pipeline_smoke_pg_mse():
+    loss_names = ['PG', 'MSE']
+    metrics, trained_models = _run_pipeline(loss_names)
+    _assert_metrics(metrics, loss_names)
     assert isinstance(trained_models, dict)

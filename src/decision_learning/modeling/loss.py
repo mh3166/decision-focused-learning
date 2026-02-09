@@ -1071,6 +1071,9 @@ LOSS_FUNCTIONS = {
     'MSE': MSELoss, # Mean Squared Error Loss
     'Cosine': CosineEmbeddingLoss, # Cosine Embedding Loss
     'PG': PG_Loss, # PG loss
+    'PG_DCA': PG_DCA_Loss, # PG-DCA loss
+    'PG_Adaptive': PG_Loss_Adaptive, # Adaptive PG loss
+    'CILO': CILO_Loss, # CILO loss
     'FYL': perturbedFenchelYoung, # perturbed Fenchel-Young loss
     'CosineSurrogateDotProdMSE': CosineSurrogateDotProdMSE, # Cosine Surrogate Dot Product MSE Loss
     'CosineSurrogateDotProdVecMag': CosineSurrogateDotProdVecMag # Cosine Surrogate Dot Product Vector Magnitude Loss
