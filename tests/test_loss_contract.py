@@ -390,3 +390,36 @@ def test_pred_cost_grad_for_pg_family_losses(loss_cls):
     loss.backward()
     assert pred_cost.grad is not None
     assert torch.isfinite(pred_cost.grad).all()
+
+
+def test_spoplus_smoothing_path_backward():
+    torch.manual_seed(0)
+    true_cost, batch = _make_standard_batch()
+    instance_kwargs = batch["instance_kwargs"]
+
+    pred = (true_cost + 0.05 * torch.randn_like(true_cost)).requires_grad_(True)
+    loss_fn = SPOPlus(
+        optmodel=_box_oracle_with_kwargs,
+        smoothing=True,
+        mc_sample_size=2,
+        sigma=0.1,
+        antithetic=False,
+        control_variate=False,
+        seed=123,
+        reduction="mean",
+        minimize=True,
+    )
+
+    loss = loss_fn(
+        pred,
+        true_cost=true_cost,
+        true_sol=batch["true_sol"],
+        true_obj=batch["true_obj"],
+        instance_kwargs=instance_kwargs,
+    )
+    assert torch.is_tensor(loss)
+    assert loss.ndim == 0
+    assert torch.isfinite(loss).all()
+    loss.backward()
+    assert pred.grad is not None
+    assert torch.isfinite(pred.grad).all()
