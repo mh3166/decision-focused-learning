@@ -2,6 +2,8 @@ import pytest
 import torch
 
 from decision_learning.modeling.loss import (
+    MSELoss,
+    CosineEmbeddingLoss,
     PG_Loss,
     SPOPlus,
     perturbedFenchelYoung,
@@ -225,21 +227,19 @@ def test_cilo_loss_contract_backward_step():
     assert torch.isfinite(pred_model.weight.grad).all()
 
 
-@pytest.mark.xfail(reason="MSELoss expects target, standardized batch does not include it yet.")
 def test_mse_loss_contract_expected_failure():
     torch.manual_seed(0)
     true_cost, batch = _make_standard_batch()
     pred = (true_cost + 0.05 * torch.randn_like(true_cost)).requires_grad_(True)
 
-    loss_fn = torch.nn.MSELoss(reduction="mean")
+    loss_fn = MSELoss(reduction="mean")
     _assert_loss_backward(loss_fn, pred, batch)
 
 
-@pytest.mark.xfail(reason="CosineEmbeddingLoss expects input2/target, standardized batch does not include them yet.")
 def test_cosine_embedding_loss_contract_expected_failure():
     torch.manual_seed(0)
     true_cost, batch = _make_standard_batch()
     pred = (true_cost + 0.05 * torch.randn_like(true_cost)).requires_grad_(True)
 
-    loss_fn = torch.nn.CosineEmbeddingLoss(reduction="mean")
+    loss_fn = CosineEmbeddingLoss(reduction="mean")
     _assert_loss_backward(loss_fn, pred, batch)

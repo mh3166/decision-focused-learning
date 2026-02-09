@@ -26,12 +26,12 @@ if not any(isinstance(handler, logging.StreamHandler) for handler in logger.hand
     logger.addHandler(stream_handler)
     
     
-def lossfn_experiment_data_pipeline(X: Union[np.ndarray, torch.tensor], 
+def build_loss_data_dict(X: Union[np.ndarray, torch.tensor], 
                                 true_cost: Union[np.ndarray, torch.tensor], 
                                 optmodel: callable,
                                 user_def_loss_inputs: dict={},
                                 instance_kwargs: dict={}):
-    """Wrapper function to preprocess data for experiments on loss functions implemented within the code base in decision_learning.modeling.loss
+    """Wrapper function to prepare data for experiments on loss functions implemented within the code base in decision_learning.modeling.loss
     Since decision-aware/focused problems generally compare the optimal solution/obj under the true_cost vs the solution/obj under the predicted cost,
     we precompute the optimal solution and objective under the true cost as "true_sol" and "true_obj". For flexibility reasons, the code base/train/pipeline/loss functions
     expect data to be passed as dictionaries with key, value pairs where the key names match up to the input arguments into loss functions. 
@@ -97,28 +97,6 @@ def train_val_spl(train_d: dict, val_split_params: dict={'test_size':0.2, 'rando
     return train_dict, val_dict
     
     
-def existing_lossfn_data_preprocess(loss_name: str, data_dict: dict):
-    """Each loss function implemented in decision_learning.modeling.loss may have specific inputs it expects beyond the generic "X", "true_cost", "true_sol", "true_obj" data.
-    This function is essentially a switch/lookup case to modify the data_dict to match the expected input arguments of the loss function. This is expected to be called before training
-    and only works for existing loss functions implemented in the code base.
-
-    Args:
-        loss_name (str): name of the loss function
-        data_dict (dict): dictionary with keys "X", "true_cost", "true_sol", "true_obj" for consistency across loss functions
-
-    Returns:
-        dict: modified data_dict with keys matching the expected input arguments of the loss function
-    """
-    # simple check loss_name and modify data_dict accordingly to make sure inputs will be the argument names expected
-    if loss_name == "MSE":
-        data_dict['target'] = data_dict['true_cost'] # nn.MSE takes target argument as the true label to be predicted, which is the true cost 
-    elif loss_name == "Cosine": # nn.CosineEmbeddingLoss takes input2 and target arguments
-        data_dict['input2'] = data_dict['true_cost'] # input2 is the true cost
-        data_dict['target'] = torch.ones(data_dict['true_cost'].shape[0]) # target is a tensor of ones (CPU)
-        
-    return data_dict 
-
-
 def lossfn_hyperparam_grid(hyperparams: dict[str, list]) -> list[dict]:
     """Create all possible combinations of hyperparameters from a dictionary of lists.
 
@@ -231,16 +209,16 @@ def lossfn_experiment_pipeline(X_train: Union[np.ndarray, torch.tensor],
     if not loss_names and user_defined_loss_inputs is None:
         raise ValueError("Please provide at least one loss function")
     
-    # -----------------Initial data preprocessing  -----------------
+    # -----------------Initial data setup  -----------------
     # This is done to ensure that the data is in the correct format for the loss functions
     # training data
-    train_d = lossfn_experiment_data_pipeline(X_train, true_cost_train, optmodel, instance_kwargs=train_instance_kwargs)
+    train_d = build_loss_data_dict(X_train, true_cost_train, optmodel, instance_kwargs=train_instance_kwargs)
     
     # split train/val data
     train_dict, val_dict = train_val_spl(train_d=train_d, val_split_params=val_split_params)
     
     # testing data
-    test_data = lossfn_experiment_data_pipeline(X_test, true_cost_test, optmodel, instance_kwargs=test_instance_kwargs)
+    test_data = build_loss_data_dict(X_test, true_cost_test, optmodel, instance_kwargs=test_instance_kwargs)
     
     # -----------------EXPERIMENT LOGGING SETUP----------------- 
     overall_metrics = []
@@ -282,7 +260,7 @@ def lossfn_experiment_pipeline(X_train: Union[np.ndarray, torch.tensor],
             
             # ADDITIONAL: create correct data input for off-the-shelf loss/preexisting loss function
             # Use a copy to prevent modifications from persisting across loss functions
-            train_dict_processed = existing_lossfn_data_preprocess(loss_name=loss_n, data_dict=copy.deepcopy(train_dict))
+            train_dict_processed = copy.deepcopy(train_dict)
             
             # -----------------TRAINING LOOP-----------------
             # TODO: decide if all loss functions should start from the same model 
@@ -321,9 +299,9 @@ def lossfn_experiment_pipeline(X_train: Union[np.ndarray, torch.tensor],
         # TODO: add functionality to also search over a a grid of hyperparameters for user-defined loss functions
         pred_model = copy.deepcopy(predmodel)
         
-        # -----------------Initial data preprocessing for user-defined loss functions-----------------
-        # TODO: add functionality to preprocess data for user-defined loss functions
-        user_def_loss_train_d = lossfn_experiment_data_pipeline(X=X_train,
+        # -----------------Initial data setup for user-defined loss functions-----------------
+        # TODO: add functionality to prepare data for user-defined loss functions
+        user_def_loss_train_d = build_loss_data_dict(X=X_train,
                                 true_cost=true_cost_train, 
                                 optmodel=optmodel,
                                 user_def_loss_inputs=user_defined_loss_input['data'], # user-provided data

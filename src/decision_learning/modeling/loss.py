@@ -137,12 +137,15 @@ class SPOPlus(nn.Module):
 
 
 
-    def forward(self, 
-            pred_cost: torch.tensor,             
-            true_cost: torch.tensor, 
-            true_sol: torch.tensor, 
-            true_obj: torch.tensor,
-            instance_kwargs: dict = {}):
+    def forward(
+            self,
+            pred_cost: torch.Tensor,
+            true_cost: torch.Tensor | None = None,
+            true_sol: torch.Tensor | None = None,
+            true_obj: torch.Tensor | None = None,
+            instance_kwargs: dict | None = None,
+            **kwargs,
+        ):
         """
         Forward pass.
         
@@ -153,6 +156,8 @@ class SPOPlus(nn.Module):
             true_obj (torch.tensor): a batch of true optimal objective values            
 
         """
+        if instance_kwargs is None:
+            instance_kwargs = {}
         if self.smoothing:
             spop_args = (true_cost, true_sol, true_obj, self.optmodel, self.minimize, instance_kwargs)
             loss = self.perturbedfunc.apply(pred_cost, 
@@ -314,10 +319,15 @@ class PG_Loss(nn.Module):
         self.optmodel = optmodel
         
 
-    def forward(self, 
-            pred_cost: torch.tensor, 
-            true_cost: torch.tensor,
-            instance_kwargs: dict = {}):
+    def forward(
+            self,
+            pred_cost: torch.Tensor,
+            true_cost: torch.Tensor | None = None,
+            true_sol: torch.Tensor | None = None,
+            true_obj: torch.Tensor | None = None,
+            instance_kwargs: dict | None = None,
+            **kwargs,
+        ):
         """
         Forward pass.
         
@@ -325,6 +335,8 @@ class PG_Loss(nn.Module):
             pred_cost (torch.tensor): a batch of predicted values of the cost            
             true_cost (torch.tensor): a batch of true values of the cost
         """
+        if instance_kwargs is None:
+            instance_kwargs = {}
         loss = self.pg.apply(pred_cost, 
                             true_cost, 
                             self.h, 
@@ -468,15 +480,20 @@ class PG_Loss_Adaptive(nn.Module):
     def forward(
         self,
         pred_cost: torch.Tensor,   # f_theta(w) computed outside
+        true_cost: torch.Tensor | None = None,
+        true_sol: torch.Tensor | None = None,
+        true_obj: torch.Tensor | None = None,
+        instance_kwargs: dict | None = None,  # per-sample data defining the optimization instance (e.g., feasible region).
         *,
-        X: torch.Tensor,           # inputs to model (needed for model0(X))
-        true_cost: torch.Tensor,   # observed cost vectors y used for the PG loss perturbation
-        pred_model: nn.Module,     # live model (for snapshot updates)
-        instance_kwargs: dict = {},  # per-sample data defining the optimization instance (e.g., feasible region).
+        X: torch.Tensor | None = None,           # inputs to model (needed for model0(X))
+        pred_model: nn.Module | None = None,     # live model (for snapshot updates)
+        **kwargs,
     ):
 
         t = pred_cost
         y = true_cost
+        if instance_kwargs is None:
+            instance_kwargs = {}
 
         with torch.no_grad():
             h = CILO_lbda(t, y, self.optmodel, self.beta, kwargs=instance_kwargs)
@@ -562,7 +579,15 @@ class perturbedFenchelYoung(nn.Module):
         self.optmodel = optmodel                
         
 
-    def forward(self, pred_cost: torch.tensor, true_sol: torch.tensor, instance_kwargs: dict = {}):
+    def forward(
+            self,
+            pred_cost: torch.Tensor,
+            true_cost: torch.Tensor | None = None,
+            true_sol: torch.Tensor | None = None,
+            true_obj: torch.Tensor | None = None,
+            instance_kwargs: dict | None = None,
+            **kwargs,
+        ):
         """
         Forward pass.
         
@@ -570,6 +595,8 @@ class perturbedFenchelYoung(nn.Module):
             pred_cost (torch.tensor): a batch of predicted values of the cost
             true_sol (torch.tensor): a batch of true optimal solutions
         """
+        if instance_kwargs is None:
+            instance_kwargs = {}
         loss = self.pfy.apply(pred_cost, 
                             true_sol,
                             self.n_samples,
@@ -721,7 +748,15 @@ class CosineSurrogateDotProdMSE(nn.Module):
         self.mse_loss = nn.MSELoss(reduction=reduction) # use off-the-shelf MSE loss
         
 
-    def forward(self, pred_cost: torch.tensor, true_cost: torch.tensor):
+    def forward(
+            self,
+            pred_cost: torch.Tensor,
+            true_cost: torch.Tensor | None = None,
+            true_sol: torch.Tensor | None = None,
+            true_obj: torch.Tensor | None = None,
+            instance_kwargs: dict | None = None,
+            **kwargs,
+        ):
         """Takes the predicted and true costs and computes the loss using the convexified cosine surrogate loss function
         that is linear combination of MSE and dot product of predicted and true costs.
         
@@ -770,7 +805,15 @@ class CosineSurrogateDotProdVecMag(nn.Module):
         self.minimize = minimize
         
 
-    def forward(self, pred_cost: torch.tensor, true_cost: torch.tensor):
+    def forward(
+            self,
+            pred_cost: torch.Tensor,
+            true_cost: torch.Tensor | None = None,
+            true_sol: torch.Tensor | None = None,
+            true_obj: torch.Tensor | None = None,
+            instance_kwargs: dict | None = None,
+            **kwargs,
+        ):
         """Computes the loss using a linear combination of two components:
         1) self dot product - measures the magnitude of the predicted cost vector, trying to minimize it
         2) dot product of predicted and true costs - measures the direction of the predicted cost vector, trying to maximize it
@@ -799,6 +842,53 @@ class CosineSurrogateDotProdVecMag(nn.Module):
             raise ValueError("No reduction '{}'.".format(self.reduction))
        
         return loss
+
+
+# -------------------------------------------------------------------------
+# Standardized wrappers for PyTorch losses
+# -------------------------------------------------------------------------
+
+class MSELoss(nn.Module):
+    """Wrapper around nn.MSELoss with standardized loss signature."""
+
+    def __init__(self, reduction: str = "mean"):
+        super().__init__()
+        self.mse = nn.MSELoss(reduction=reduction)
+
+    def forward(
+            self,
+            pred_cost: torch.Tensor,
+            true_cost: torch.Tensor | None = None,
+            true_sol: torch.Tensor | None = None,
+            true_obj: torch.Tensor | None = None,
+            instance_kwargs: dict | None = None,
+            **kwargs,
+        ):
+        if true_cost is None:
+            raise ValueError("StandardMSELoss requires true_cost.")
+        return self.mse(pred_cost, true_cost)
+
+
+class CosineEmbeddingLoss(nn.Module):
+    """Wrapper around nn.CosineEmbeddingLoss with standardized loss signature."""
+
+    def __init__(self, reduction: str = "mean"):
+        super().__init__()
+        self.cosine = nn.CosineEmbeddingLoss(reduction=reduction)
+
+    def forward(
+            self,
+            pred_cost: torch.Tensor,
+            true_cost: torch.Tensor | None = None,
+            true_sol: torch.Tensor | None = None,
+            true_obj: torch.Tensor | None = None,
+            instance_kwargs: dict | None = None,
+            **kwargs,
+        ):
+        if true_cost is None:
+            raise ValueError("StandardCosineEmbeddingLoss requires true_cost.")
+        target = torch.ones(pred_cost.shape[0], device=pred_cost.device, dtype=pred_cost.dtype)
+        return self.cosine(pred_cost, true_cost, target)
     
 
 # -------------------------------------------------------------------------
@@ -843,16 +933,21 @@ class PG_DCA_Loss(nn.Module):
     def forward(
         self,
         pred_cost: torch.Tensor,   # f_theta(w) computed outside
+        true_cost: torch.Tensor | None = None,
+        true_sol: torch.Tensor | None = None,
+        true_obj: torch.Tensor | None = None,
+        instance_kwargs: dict | None = None,  # per-sample data defining the optimization instance (e.g., feasible region).
         *,
-        X: torch.Tensor,           # inputs to model (needed for model0(X))
-        true_cost: torch.Tensor,   # observed cost vectors y used for the PG loss perturbation
-        pred_model: nn.Module,     # live model (for snapshot updates)
-        instance_kwargs: dict = {},  # per-sample data defining the optimization instance (e.g., feasible region).
+        X: torch.Tensor | None = None,           # inputs to model (needed for model0(X))
+        pred_model: nn.Module | None = None,     # live model (for snapshot updates)
+        **kwargs,
     ):
 
         t = pred_cost
         y = true_cost
         h = self.h
+        if instance_kwargs is None:
+            instance_kwargs = {}
         t_minus = t - h * y
 
         # ----------------------------------------------------
@@ -917,15 +1012,20 @@ class CILO_Loss(nn.Module):
     def forward(
         self,
         pred_cost: torch.Tensor,   # f_theta(w) computed outside
+        true_cost: torch.Tensor | None = None,
+        true_sol: torch.Tensor | None = None,
+        true_obj: torch.Tensor | None = None,
+        instance_kwargs: dict | None = None,  # per-sample data defining the optimization instance (e.g., feasible region).
         *,
-        X: torch.Tensor,           # inputs to model (needed for model0(X))
-        true_cost: torch.Tensor,   # observed cost vectors y used for the PG loss perturbation
-        pred_model: nn.Module,     # live model (for snapshot updates)
-        instance_kwargs: dict = {},  # per-sample data defining the optimization instance (e.g., feasible region).
+        X: torch.Tensor | None = None,           # inputs to model (needed for model0(X))
+        pred_model: nn.Module | None = None,     # live model (for snapshot updates)
+        **kwargs,
     ):
 
         t = pred_cost
         y = true_cost
+        if instance_kwargs is None:
+            instance_kwargs = {}
 
         with torch.no_grad():
             h = CILO_lbda(t, y, self.optmodel, self.beta, kwargs=instance_kwargs)
@@ -968,8 +1068,8 @@ class CILO_Loss(nn.Module):
 # Registry mapping names to functions
 LOSS_FUNCTIONS = {
     'SPO+': SPOPlus, # SPO Plus Loss
-    'MSE': nn.MSELoss, # Mean Squared Error Loss
-    'Cosine': nn.CosineEmbeddingLoss, # Cosine Embedding Loss
+    'MSE': MSELoss, # Mean Squared Error Loss
+    'Cosine': CosineEmbeddingLoss, # Cosine Embedding Loss
     'PG': PG_Loss, # PG loss
     'FYL': perturbedFenchelYoung, # perturbed Fenchel-Young loss
     'CosineSurrogateDotProdMSE': CosineSurrogateDotProdMSE, # Cosine Surrogate Dot Product MSE Loss
