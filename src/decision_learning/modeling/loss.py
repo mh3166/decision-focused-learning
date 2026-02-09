@@ -123,8 +123,6 @@ class SPOPlus(nn.Module):
             minimize (bool): whether the optimization problem is minimization or maximization              
         """
         super(SPOPlus, self).__init__()        
-        self.spop = SPOPlusFunc()
-        self.perturbedfunc = PerturbedOpt()
         self.reduction = reduction
         self.minimize = minimize
         self.smoothing = smoothing
@@ -160,16 +158,16 @@ class SPOPlus(nn.Module):
             instance_kwargs = {}
         if self.smoothing:
             spop_args = (true_cost, true_sol, true_obj, self.optmodel, self.minimize, instance_kwargs)
-            loss = self.perturbedfunc.apply(pred_cost, 
+            loss = PerturbedOpt.apply(pred_cost, 
                                             spop_args, 
-                                            self.spop, 
+                                            SPOPlusFunc, 
                                             self.sigma, 
                                             self.s, 
                                             self.antithetic, 
                                             self.control_variate, 
                                             self.seed)
         else:        
-            loss = self.spop.apply(pred_cost, 
+            loss = SPOPlusFunc.apply(pred_cost, 
                                 true_cost, 
                                 true_sol, 
                                 true_obj, 
@@ -311,7 +309,6 @@ class PG_Loss(nn.Module):
             raise ValueError("finite_diff_type must be one of 'B', 'C', 'F'")
         
         super(PG_Loss, self).__init__()     
-        self.pg = PGLossFunc()   
         self.h = h
         self.finite_diff_type = finite_diff_type
         self.reduction = reduction
@@ -337,7 +334,7 @@ class PG_Loss(nn.Module):
         """
         if instance_kwargs is None:
             instance_kwargs = {}
-        loss = self.pg.apply(pred_cost, 
+        loss = PGLossFunc.apply(pred_cost, 
                             true_cost, 
                             self.h, 
                             self.finite_diff_type, 
@@ -570,7 +567,6 @@ class perturbedFenchelYoung(nn.Module):
         """
         super(perturbedFenchelYoung, self).__init__()
         
-        self.pfy = perturbedFenchelYoungFunc()        
         self.n_samples = n_samples # number of samples        
         self.sigma = sigma # perturbation amplitude        
         self.rnd = np.random.RandomState(seed) # random state        
@@ -597,7 +593,7 @@ class perturbedFenchelYoung(nn.Module):
         """
         if instance_kwargs is None:
             instance_kwargs = {}
-        loss = self.pfy.apply(pred_cost, 
+        loss = perturbedFenchelYoungFunc.apply(pred_cost, 
                             true_sol,
                             self.n_samples,
                             self.rnd,
