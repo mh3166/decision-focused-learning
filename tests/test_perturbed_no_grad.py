@@ -1,6 +1,6 @@
 import torch
 
-from decision_learning.modeling.perturbed import PerturbedOpt
+from decision_learning.modeling.smoothing import RandomizedSmoothingFunc
 
 
 def test_perturbed_forward_uses_no_grad_for_loss_eval():
@@ -14,7 +14,7 @@ def test_perturbed_forward_uses_no_grad_for_loss_eval():
         target = kw["y"]
         return ((pred - target) ** 2).sum(dim=1)
 
-    loss = PerturbedOpt.apply(
+    loss = RandomizedSmoothingFunc.apply(
         pred_cost,
         loss_eval,
         {"y": y},

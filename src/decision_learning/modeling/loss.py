@@ -100,7 +100,7 @@ def CILO_lbda(
 # SPO Plus (Smart Predict and Optimize Plus) Loss
 # -------------------------------------------------------------------------
 
-class SPOPlus(nn.Module):
+class SPOPlusLoss(nn.Module):
     """
     Wrapper function around SPOLossFunc with customized backwards pass.
     This loss uses manual backward logic (not vanilla autograd). Extend
@@ -131,7 +131,7 @@ class SPOPlus(nn.Module):
             reduction (str): the reduction to apply to the output
             minimize (bool): whether the optimization problem is minimization or maximization              
         """
-        super(SPOPlus, self).__init__()        
+        super(SPOPlusLoss, self).__init__()        
         self.reduction = reduction
         self.minimize = minimize
         self.optmodel = optmodel      
@@ -178,7 +178,7 @@ class SPOPlus(nn.Module):
         """
         if instance_kwargs is None:
             instance_kwargs = {}
-        loss = SPOPlusFunc.apply(pred_cost, 
+        loss = SPOPlusLossFunc.apply(pred_cost, 
                             true_cost, 
                             true_sol, 
                             true_obj, 
@@ -189,7 +189,7 @@ class SPOPlus(nn.Module):
         return _normalize_per_sample(loss)
     
     
-class SPOPlusFunc(Function):
+class SPOPlusLossFunc(Function):
     """
     A autograd function for SPO+ Loss with a custom gradient (manual backward).
     """
@@ -267,7 +267,7 @@ class SPOPlusFunc(Function):
 # Perturbation Gradient (PG) Loss
 # -------------------------------------------------------------------------
 
-class PG_Loss(nn.Module):
+class PGLoss(nn.Module):
     """
     An autograd module for Perturbation Gradient (PG) Loss using a custom gradient
     (manual backward, not vanilla autograd).
@@ -309,7 +309,7 @@ class PG_Loss(nn.Module):
         if finite_diff_type not in ['B', 'C', 'F']:
             raise ValueError("finite_diff_type must be one of 'B', 'C', 'F'")
         
-        super(PG_Loss, self).__init__()     
+        super(PGLoss, self).__init__()     
         self.h = h
         self.finite_diff_type = finite_diff_type
         self.reduction = reduction
@@ -354,7 +354,7 @@ class PG_Loss(nn.Module):
         """
         if instance_kwargs is None:
             instance_kwargs = {}
-        loss = PGLossFunc.apply(pred_cost, 
+        loss = PGFunc.apply(pred_cost, 
                             true_cost, 
                             self.h, 
                             self.finite_diff_type, 
@@ -365,7 +365,7 @@ class PG_Loss(nn.Module):
         return _normalize_per_sample(loss)
     
     
-class PGLossFunc(Function):
+class PGFunc(Function):
     """
     A autograd function for Perturbation Gradient (PG) Loss with a custom gradient
     (manual backward).
@@ -598,7 +598,7 @@ class FYFunc(Function):
 # Adaptive PG Loss
 # -------------------------------------------------------------------------
 
-class PG_Loss_Adaptive(nn.Module):
+class PGAdaptiveLoss(nn.Module):
     """
     Adaptive PG loss where the perturbation scale h is chosen via CILO_lbda
     based on the current batch. pred_cost is computed externally and passed in.
@@ -681,7 +681,7 @@ class PG_Loss_Adaptive(nn.Module):
 # -------------------------------------------------------------------------
 # Cosine Surrogates
 # -------------------------------------------------------------------------
-class CosineSurrogateDotProdMSE(nn.Module):
+class CosineSurrogateDotProdMSELoss(nn.Module):
     """Implements a convexified surrogate loss function for cosine similarity loss by taking
     a linear combination of the mean squared error (MSE) and the dot product of the predicted and true costs since
     - MSE captures magnitude of the difference between predicted and true costs
@@ -695,7 +695,7 @@ class CosineSurrogateDotProdMSE(nn.Module):
             reduction (str): the reduction to apply to the output. Defaults to 'mean'.
             minimize (bool): whether the optimization problem is minimization or maximization. Defaults to True.
         """
-        super(CosineSurrogateDotProdMSE, self).__init__()
+        super(CosineSurrogateDotProdMSELoss, self).__init__()
         self.alpha = alpha
         self.reduction = reduction
         self.minimize = minimize
@@ -751,7 +751,7 @@ class CosineSurrogateDotProdMSE(nn.Module):
         return _normalize_per_sample(loss)
     
     
-class CosineSurrogateDotProdVecMag(nn.Module):
+class CosineSurrogateDotProdVecMagLoss(nn.Module):
     """Implements a convexified surrogate loss function for cosine similarity loss by taking
     trying to maximize the dot product of the predicted and true costs while simultaneously minimizing the magnitude of the predicted cost
     since this would incentivize the predicted cost to be in the same direction as the true cost without the predictions artificially
@@ -764,7 +764,7 @@ class CosineSurrogateDotProdVecMag(nn.Module):
             reduction (str): the reduction to apply to the output. Defaults to 'mean'.
             minimize (bool): whether the optimization problem is minimization or maximization. Defaults to True.
         """
-        super(CosineSurrogateDotProdVecMag, self).__init__()
+        super(CosineSurrogateDotProdVecMagLoss, self).__init__()
         self.alpha = alpha
         self.reduction = reduction
         self.minimize = minimize
@@ -917,7 +917,7 @@ class CosineEmbeddingLoss(nn.Module):
 # Perturbation Gradient (PG) DCA Loss
 # -------------------------------------------------------------------------
 
-class PG_DCA_Loss(nn.Module):
+class PGDCALoss(nn.Module):
     """
     PG(f_theta(w); c, h, theta0) =
       ( <f_theta(w), x(f_theta0(w))> - <f_theta(w) - h c, x(f_theta(w) - h c)> ) / h
@@ -1029,7 +1029,7 @@ class PG_DCA_Loss(nn.Module):
 # CILO Loss
 # -------------------------------------------------------------------------
 
-class CILO_Loss(nn.Module):
+class CILOLoss(nn.Module):
     """
     CILO-style loss where the perturbation scale is chosen via CILO_lbda.
     pred_cost is computed externally and passed in.
@@ -1115,16 +1115,16 @@ class CILO_Loss(nn.Module):
 # -------------------------------------------------------------------------
 # Registry mapping names to functions
 LOSS_FUNCTIONS = {
-    'SPO+': SPOPlus, # SPO Plus Loss
+    'SPO+': SPOPlusLoss, # SPO Plus Loss
     'MSE': MSELoss, # Mean Squared Error Loss
     'Cosine': CosineEmbeddingLoss, # Cosine Embedding Loss
-    'PG': PG_Loss, # PG loss
+    'PG': PGLoss, # PG loss
     'FY': FYLoss, # Fenchel-Young loss (unsmoothed)
-    'PG_DCA': PG_DCA_Loss, # PG-DCA loss
-    'PG_Adaptive': PG_Loss_Adaptive, # Adaptive PG loss
-    'CILO': CILO_Loss, # CILO loss
-    'CosineSurrogateDotProdMSE': CosineSurrogateDotProdMSE, # Cosine Surrogate Dot Product MSE Loss
-    'CosineSurrogateDotProdVecMag': CosineSurrogateDotProdVecMag # Cosine Surrogate Dot Product Vector Magnitude Loss
+    'PG_DCA': PGDCALoss, # PG-DCA loss
+    'PG_Adaptive': PGAdaptiveLoss, # Adaptive PG loss
+    'CILO': CILOLoss, # CILO loss
+    'CosineSurrogateDotProdMSELoss': CosineSurrogateDotProdMSELoss, # Cosine Surrogate Dot Product MSE Loss
+    'CosineSurrogateDotProdVecMagLoss': CosineSurrogateDotProdVecMagLoss # Cosine Surrogate Dot Product Vector Magnitude Loss
 }
 
 def get_loss_function(name: str) -> callable:

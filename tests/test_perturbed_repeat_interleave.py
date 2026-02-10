@@ -1,6 +1,6 @@
 import torch
 
-from decision_learning.modeling.perturbed import PerturbedOpt
+from decision_learning.modeling.smoothing import RandomizedSmoothingFunc
 
 
 def test_repeat_interleave_nested_tuple_with_batched_instance_kwargs():
@@ -18,7 +18,7 @@ def test_repeat_interleave_nested_tuple_with_batched_instance_kwargs():
 
     loss_args = (true_cost, true_sol, instance_kwargs, h)
 
-    expanded = PerturbedOpt.repeat_interleave_nested(loss_args, s, dim=0)
+    expanded = RandomizedSmoothingFunc.repeat_interleave_nested(loss_args, s, dim=0)
 
     assert expanded[0].shape == (B * s, d)
     assert torch.equal(expanded[0], true_cost.repeat_interleave(s, dim=0))
@@ -58,7 +58,7 @@ def test_repeat_interleave_nested_dict_with_instance_kwargs():
         "h": h,
     }
 
-    expanded = PerturbedOpt.repeat_interleave_nested(loss_kwargs, s, dim=0)
+    expanded = RandomizedSmoothingFunc.repeat_interleave_nested(loss_kwargs, s, dim=0)
 
     assert expanded["true_cost"].shape == (B * s, d)
     assert torch.equal(expanded["true_cost"], true_cost.repeat_interleave(s, dim=0))

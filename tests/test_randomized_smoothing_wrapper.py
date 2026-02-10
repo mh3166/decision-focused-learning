@@ -1,7 +1,7 @@
 import torch
 
 from decision_learning.modeling.smoothing import RandomizedSmoothingWrapper
-from decision_learning.modeling.loss import PG_Loss
+from decision_learning.modeling.loss import PGLoss
 
 
 class ToyLoss(torch.nn.Module):
@@ -107,7 +107,7 @@ def test_randomized_smoothing_wrapper_with_pg_loss():
     )
     instance_kwargs = {"b": torch.ones_like(true_cost)}
 
-    base = PG_Loss(
+    base = PGLoss(
         optmodel=_box_oracle_with_kwargs,
         h=0.1,
         finite_diff_type="B",

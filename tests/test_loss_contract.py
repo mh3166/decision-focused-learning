@@ -4,14 +4,14 @@ import torch
 from decision_learning.modeling.loss import (
     MSELoss,
     CosineEmbeddingLoss,
-    PG_Loss,
-    SPOPlus,
+    PGLoss,
+    SPOPlusLoss,
     FYLoss,
-    CosineSurrogateDotProdMSE,
-    CosineSurrogateDotProdVecMag,
-    PG_DCA_Loss,
-    PG_Loss_Adaptive,
-    CILO_Loss,
+    CosineSurrogateDotProdMSELoss,
+    CosineSurrogateDotProdVecMagLoss,
+    PGDCALoss,
+    PGAdaptiveLoss,
+    CILOLoss,
 )
 from decision_learning.modeling.smoothing import RandomizedSmoothingWrapper
 from decision_learning.utils import filter_kwargs
@@ -19,14 +19,14 @@ from decision_learning.utils import filter_kwargs
 SUPPORTED_LOSSES = [
     MSELoss,
     CosineEmbeddingLoss,
-    PG_Loss,
-    SPOPlus,
+    PGLoss,
+    SPOPlusLoss,
     FYLoss,
-    CosineSurrogateDotProdMSE,
-    CosineSurrogateDotProdVecMag,
-    PG_DCA_Loss,
-    PG_Loss_Adaptive,
-    CILO_Loss,
+    CosineSurrogateDotProdMSELoss,
+    CosineSurrogateDotProdVecMagLoss,
+    PGDCALoss,
+    PGAdaptiveLoss,
+    CILOLoss,
 ]
 
 
@@ -88,7 +88,7 @@ def test_pg_dca_loss_contract_backward_step():
     X = torch.randn(true_cost.shape[0], input_dim)
     pred_cost = pred_model(X)
 
-    loss_fn = PG_DCA_Loss(
+    loss_fn = PGDCALoss(
         optmodel=_box_oracle_with_kwargs,
         h=0.1,
         reduction="mean",
@@ -121,14 +121,14 @@ def _build_linear_pred_cost(true_cost: torch.Tensor, seed: int = 0):
 
 
 def _build_loss_inputs_for_reduction(loss_cls, true_cost, batch, seed: int = 0):
-    if loss_cls in (PG_DCA_Loss, PG_Loss_Adaptive, CILO_Loss):
+    if loss_cls in (PGDCALoss, PGAdaptiveLoss, CILOLoss):
         pred_model, X, pred_cost = _build_linear_pred_cost(true_cost, seed=seed)
         batch = dict(batch)
         batch["X"] = X
         batch["pred_model"] = pred_model
         pred = pred_cost
 
-        if loss_cls is PG_DCA_Loss:
+        if loss_cls is PGDCALoss:
             def _factory(reduction: str):
                 return loss_cls(
                     optmodel=_box_oracle_with_kwargs,
@@ -137,7 +137,7 @@ def _build_loss_inputs_for_reduction(loss_cls, true_cost, batch, seed: int = 0):
                     minimize=True,
                     update_every=1,
                 )
-        elif loss_cls is PG_Loss_Adaptive:
+        elif loss_cls is PGAdaptiveLoss:
             def _factory(reduction: str):
                 return loss_cls(
                     optmodel=_box_oracle_with_kwargs,
@@ -155,7 +155,7 @@ def _build_loss_inputs_for_reduction(loss_cls, true_cost, batch, seed: int = 0):
                 )
         return pred, batch, _factory
 
-    if loss_cls in (PG_Loss, SPOPlus, FYLoss):
+    if loss_cls in (PGLoss, SPOPlusLoss, FYLoss):
         pred = (true_cost + 0.05 * torch.randn_like(true_cost)).requires_grad_(True)
 
         def _factory(reduction: str):
@@ -163,12 +163,12 @@ def _build_loss_inputs_for_reduction(loss_cls, true_cost, batch, seed: int = 0):
                 optmodel=_box_oracle_with_kwargs,
                 reduction=reduction,
                 minimize=True,
-                **({"h": 0.1, "finite_diff_type": "B"} if loss_cls is PG_Loss else {}),
+                **({"h": 0.1, "finite_diff_type": "B"} if loss_cls is PGLoss else {}),
             )
         return pred, batch, _factory
 
     pred = (true_cost + 0.05 * torch.randn_like(true_cost)).requires_grad_(True)
-    if loss_cls in (CosineSurrogateDotProdMSE, CosineSurrogateDotProdVecMag):
+    if loss_cls in (CosineSurrogateDotProdMSELoss, CosineSurrogateDotProdVecMagLoss):
         def _factory(reduction: str):
             return loss_cls(alpha=0.5, reduction=reduction, minimize=True)
     else:
@@ -206,7 +206,7 @@ def test_pg_loss_adaptive_contract_backward_step():
 
     pred_model, X, pred_cost = _build_linear_pred_cost(true_cost, seed=1)
 
-    loss_fn = PG_Loss_Adaptive(
+    loss_fn = PGAdaptiveLoss(
         optmodel=_box_oracle_with_kwargs,
         beta=0.1,
         reduction="mean",
@@ -235,7 +235,7 @@ def test_cilo_loss_contract_backward_step():
 
     pred_model, X, pred_cost = _build_linear_pred_cost(true_cost, seed=2)
 
-    loss_fn = CILO_Loss(
+    loss_fn = CILOLoss(
         optmodel=_box_oracle_with_kwargs,
         beta=0.1,
         reduction="mean",
@@ -263,13 +263,13 @@ def test_loss_standard_signature_acceptance(loss_cls):
     true_cost, batch = _make_standard_batch()
     instance_kwargs = batch["instance_kwargs"]
 
-    if loss_cls in (PG_DCA_Loss, PG_Loss_Adaptive, CILO_Loss):
+    if loss_cls in (PGDCALoss, PGAdaptiveLoss, CILOLoss):
         pred_model, X, pred_cost = _build_linear_pred_cost(true_cost, seed=3)
         batch = dict(batch)
         batch["X"] = X
         batch["pred_model"] = pred_model
         pred = pred_cost
-        if loss_cls is PG_DCA_Loss:
+        if loss_cls is PGDCALoss:
             loss_fn = loss_cls(
                 optmodel=_box_oracle_with_kwargs,
                 h=0.1,
@@ -277,7 +277,7 @@ def test_loss_standard_signature_acceptance(loss_cls):
                 minimize=True,
                 update_every=1,
             )
-        elif loss_cls is PG_Loss_Adaptive:
+        elif loss_cls is PGAdaptiveLoss:
             loss_fn = loss_cls(
                 optmodel=_box_oracle_with_kwargs,
                 beta=0.1,
@@ -291,17 +291,17 @@ def test_loss_standard_signature_acceptance(loss_cls):
                 reduction="mean",
                 minimize=True,
             )
-    elif loss_cls in (PG_Loss, SPOPlus, FYLoss):
+    elif loss_cls in (PGLoss, SPOPlusLoss, FYLoss):
         pred = (true_cost + 0.05 * torch.randn_like(true_cost)).requires_grad_(True)
         loss_fn = loss_cls(
             optmodel=_box_oracle_with_kwargs,
             reduction="mean",
             minimize=True,
-            **({"h": 0.1, "finite_diff_type": "B"} if loss_cls is PG_Loss else {}),
+            **({"h": 0.1, "finite_diff_type": "B"} if loss_cls is PGLoss else {}),
         )
     else:
         pred = (true_cost + 0.05 * torch.randn_like(true_cost)).requires_grad_(True)
-        if loss_cls in (CosineSurrogateDotProdMSE, CosineSurrogateDotProdVecMag):
+        if loss_cls in (CosineSurrogateDotProdMSELoss, CosineSurrogateDotProdVecMagLoss):
             loss_fn = loss_cls(alpha=0.5, reduction="mean", minimize=True)
         else:
             loss_fn = loss_cls(reduction="mean")
@@ -311,13 +311,13 @@ def test_loss_standard_signature_acceptance(loss_cls):
     assert loss.ndim == 0
     assert torch.isfinite(loss).all()
 
-    if loss_cls not in (PG_DCA_Loss, PG_Loss_Adaptive, CILO_Loss):
+    if loss_cls not in (PGDCALoss, PGAdaptiveLoss, CILOLoss):
         loss.backward()
         assert pred.grad is not None
         assert torch.isfinite(pred.grad).all()
 
 
-@pytest.mark.parametrize("loss_cls", [PG_DCA_Loss, PG_Loss_Adaptive, CILO_Loss])
+@pytest.mark.parametrize("loss_cls", [PGDCALoss, PGAdaptiveLoss, CILOLoss])
 def test_pred_cost_grad_for_pg_family_losses(loss_cls):
     torch.manual_seed(0)
     true_cost, batch = _make_standard_batch()
@@ -328,7 +328,7 @@ def test_pred_cost_grad_for_pg_family_losses(loss_cls):
     X = torch.randn(true_cost.shape[0], input_dim)
     pred_cost = pred_model(X).detach().requires_grad_(True)
 
-    if loss_cls is PG_DCA_Loss:
+    if loss_cls is PGDCALoss:
         loss_fn = loss_cls(
             optmodel=_box_oracle_with_kwargs,
             h=0.1,
@@ -336,7 +336,7 @@ def test_pred_cost_grad_for_pg_family_losses(loss_cls):
             minimize=True,
             update_every=1,
         )
-    elif loss_cls is PG_Loss_Adaptive:
+    elif loss_cls is PGAdaptiveLoss:
         loss_fn = loss_cls(
             optmodel=_box_oracle_with_kwargs,
             beta=0.1,
@@ -369,7 +369,7 @@ def test_spoplus_smoothing_path_backward():
     instance_kwargs = batch["instance_kwargs"]
 
     pred = (true_cost + 0.05 * torch.randn_like(true_cost)).requires_grad_(True)
-    base_loss = SPOPlus(
+    base_loss = SPOPlusLoss(
         optmodel=_box_oracle_with_kwargs,
         reduction="mean",
         minimize=True,
