@@ -12,7 +12,7 @@ import decision_learning.modeling.pipeline
 import decision_learning.benchmarks.shortest_path_grid.data
 from decision_learning.utils import handle_solver
 from decision_learning.modeling.models import LinearRegression
-from decision_learning.modeling.pipeline import lossfn_experiment_pipeline, lossfn_hyperparam_grid
+from decision_learning.modeling.pipeline import run_loss_experiments, expand_hyperparam_grid
 from decision_learning.benchmarks.shortest_path_grid.data import genData
 from decision_learning.benchmarks.shortest_path_grid.oracle import opt_oracle
 
@@ -115,7 +115,7 @@ def main():
         # ------------loss function experiment pipeline------------
         
         # non-PG losses
-        preimplement_loss_results, preimplement_loss_models = lossfn_experiment_pipeline(X_train=generated_data['feat'],
+        preimplement_loss_results, preimplement_loss_models = run_loss_experiments(X_train=generated_data['feat'],
                 true_cost_train=generated_data['cost'],
                 X_test=generated_data_test['feat'],
                 true_cost_test=generated_data_test['cost_true'], 
@@ -131,7 +131,7 @@ def main():
                 )
         
         # PG loss
-        PG_init_results, PG_init_models = lossfn_experiment_pipeline(X_train=generated_data['feat'],
+        PG_init_results, PG_init_models = run_loss_experiments(X_train=generated_data['feat'],
                 true_cost_train=generated_data['cost'],
                 X_test=generated_data_test['feat'],
                 true_cost_test=generated_data_test['cost_true'], 
@@ -148,7 +148,7 @@ def main():
                 )
 
         # Cosine Surrogate Losses        
-        cos_surr_results, cos_surr_models = lossfn_experiment_pipeline(X_train=generated_data['feat'],
+        cos_surr_results, cos_surr_models = run_loss_experiments(X_train=generated_data['feat'],
                         true_cost_train=generated_data['cost'],
                         X_test=generated_data_test['feat'],
                         true_cost_test=generated_data_test['cost_true'], 

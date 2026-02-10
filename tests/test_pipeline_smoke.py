@@ -8,7 +8,7 @@ import torch
 from decision_learning.benchmarks.shortest_path_grid.data import genData
 from decision_learning.benchmarks.shortest_path_grid.oracle import opt_oracle
 from decision_learning.modeling.models import LinearRegression
-from decision_learning.modeling.pipeline import lossfn_experiment_pipeline
+from decision_learning.modeling.pipeline import run_loss_experiments
 from decision_learning.utils import handle_solver
 
 
@@ -65,7 +65,7 @@ def _run_pipeline(loss_names, seed: int = 123, print_metrics: bool = False):
         output_dim=train_data['cost'].shape[1],
     )
 
-    metrics, trained_models = lossfn_experiment_pipeline(
+    metrics, trained_models = run_loss_experiments(
         X_train=train_data['feat'],
         true_cost_train=train_data['cost'],
         X_test=test_data['feat'],

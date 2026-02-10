@@ -42,3 +42,18 @@ loss = loss_fn(
     instance_kwargs=instance_kwargs,
 )
 ```
+
+# Contracts
+This repo relies on a small set of interface contracts to keep the training loop simple and extensible.
+
+## Loss function signature
+Loss functions must accept extra keyword arguments and ignore anything they don't use.
+In practice, this means `forward` (and `per_sample`, if you expose it) should include `**kwargs`.
+The training loop passes all batch fields to the loss.
+
+Minimal example:
+```python
+def forward(self, pred_cost, true_cost=None, **kwargs):
+    # ignore unused kwargs
+    ...
+```
