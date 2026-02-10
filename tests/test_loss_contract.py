@@ -6,13 +6,14 @@ from decision_learning.modeling.loss import (
     CosineEmbeddingLoss,
     PG_Loss,
     SPOPlus,
-    perturbedFenchelYoung,
+    FYLoss,
     CosineSurrogateDotProdMSE,
     CosineSurrogateDotProdVecMag,
     PG_DCA_Loss,
     PG_Loss_Adaptive,
     CILO_Loss,
 )
+from decision_learning.modeling.smoothing import RandomizedSmoothingWrapper
 from decision_learning.utils import filter_kwargs
 
 SUPPORTED_LOSSES = [
@@ -20,7 +21,7 @@ SUPPORTED_LOSSES = [
     CosineEmbeddingLoss,
     PG_Loss,
     SPOPlus,
-    perturbedFenchelYoung,
+    FYLoss,
     CosineSurrogateDotProdMSE,
     CosineSurrogateDotProdVecMag,
     PG_DCA_Loss,
@@ -120,9 +121,6 @@ def _build_linear_pred_cost(true_cost: torch.Tensor, seed: int = 0):
 
 
 def _build_loss_inputs_for_reduction(loss_cls, true_cost, batch, seed: int = 0):
-    if loss_cls is perturbedFenchelYoung:
-        pytest.xfail("FY perturbed path does not yet expand instance_kwargs to match n_samples * batch.")
-
     if loss_cls in (PG_DCA_Loss, PG_Loss_Adaptive, CILO_Loss):
         pred_model, X, pred_cost = _build_linear_pred_cost(true_cost, seed=seed)
         batch = dict(batch)
@@ -157,7 +155,7 @@ def _build_loss_inputs_for_reduction(loss_cls, true_cost, batch, seed: int = 0):
                 )
         return pred, batch, _factory
 
-    if loss_cls in (PG_Loss, SPOPlus):
+    if loss_cls in (PG_Loss, SPOPlus, FYLoss):
         pred = (true_cost + 0.05 * torch.randn_like(true_cost)).requires_grad_(True)
 
         def _factory(reduction: str):
@@ -166,20 +164,6 @@ def _build_loss_inputs_for_reduction(loss_cls, true_cost, batch, seed: int = 0):
                 reduction=reduction,
                 minimize=True,
                 **({"h": 0.1, "finite_diff_type": "B"} if loss_cls is PG_Loss else {}),
-            )
-        return pred, batch, _factory
-
-    if loss_cls is perturbedFenchelYoung:
-        pred = (true_cost + 0.05 * torch.randn_like(true_cost)).requires_grad_(True)
-
-        def _factory(reduction: str):
-            return loss_cls(
-                optmodel=_box_oracle_with_kwargs,
-                n_samples=3,
-                sigma=0.1,
-                seed=123,
-                reduction=reduction,
-                minimize=True,
             )
         return pred, batch, _factory
 
@@ -279,9 +263,6 @@ def test_loss_standard_signature_acceptance(loss_cls):
     true_cost, batch = _make_standard_batch()
     instance_kwargs = batch["instance_kwargs"]
 
-    if loss_cls is perturbedFenchelYoung:
-        pytest.xfail("FY perturbed path does not yet expand instance_kwargs to match n_samples * batch.")
-
     if loss_cls in (PG_DCA_Loss, PG_Loss_Adaptive, CILO_Loss):
         pred_model, X, pred_cost = _build_linear_pred_cost(true_cost, seed=3)
         batch = dict(batch)
@@ -310,23 +291,13 @@ def test_loss_standard_signature_acceptance(loss_cls):
                 reduction="mean",
                 minimize=True,
             )
-    elif loss_cls in (PG_Loss, SPOPlus):
+    elif loss_cls in (PG_Loss, SPOPlus, FYLoss):
         pred = (true_cost + 0.05 * torch.randn_like(true_cost)).requires_grad_(True)
         loss_fn = loss_cls(
             optmodel=_box_oracle_with_kwargs,
             reduction="mean",
             minimize=True,
             **({"h": 0.1, "finite_diff_type": "B"} if loss_cls is PG_Loss else {}),
-        )
-    elif loss_cls is perturbedFenchelYoung:
-        pred = (true_cost + 0.05 * torch.randn_like(true_cost)).requires_grad_(True)
-        loss_fn = loss_cls(
-            optmodel=_box_oracle_with_kwargs,
-            n_samples=3,
-            sigma=0.1,
-            seed=123,
-            reduction="mean",
-            minimize=True,
         )
     else:
         pred = (true_cost + 0.05 * torch.randn_like(true_cost)).requires_grad_(True)
@@ -398,20 +369,23 @@ def test_spoplus_smoothing_path_backward():
     instance_kwargs = batch["instance_kwargs"]
 
     pred = (true_cost + 0.05 * torch.randn_like(true_cost)).requires_grad_(True)
-    loss_fn = SPOPlus(
+    base_loss = SPOPlus(
         optmodel=_box_oracle_with_kwargs,
-        smoothing=True,
-        mc_sample_size=2,
-        sigma=0.1,
-        antithetic=False,
-        control_variate=False,
-        seed=123,
         reduction="mean",
         minimize=True,
     )
+    loss_fn = RandomizedSmoothingWrapper(
+        base_loss=base_loss,
+        sigma=0.1,
+        s=2,
+        seed=123,
+        antithetic=False,
+        control_variate=False,
+        reduction="mean",
+    )
 
     loss = loss_fn(
-        pred,
+        pred_cost=pred,
         true_cost=true_cost,
         true_sol=batch["true_sol"],
         true_obj=batch["true_obj"],

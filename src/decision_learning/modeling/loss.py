@@ -5,7 +5,6 @@ from torch.autograd import Function
 from torch.utils.data import Dataset
 import numpy as np
 from decision_learning.utils import handle_solver
-from decision_learning.modeling.perturbed import PerturbedOpt
 
 
 def _reduce_loss(loss: torch.Tensor, reduction: str) -> torch.Tensor:
@@ -115,12 +114,6 @@ class SPOPlus(nn.Module):
 
     def __init__(self, 
                 optmodel: callable, 
-                smoothing: bool=False,
-                mc_sample_size: int = 1,
-                sigma: float = 1,
-                antithetic: bool=False,
-                control_variate: bool=False,
-                seed: int=42,
                 minimize: bool=True,
                 reduction: str="mean"):
         """
@@ -141,13 +134,7 @@ class SPOPlus(nn.Module):
         super(SPOPlus, self).__init__()        
         self.reduction = reduction
         self.minimize = minimize
-        self.smoothing = smoothing
-        self.control_variate = control_variate
-        self.antithetic = antithetic
-        self.s = mc_sample_size
-        self.sigma = sigma
         self.optmodel = optmodel      
-        self.seed = seed
 
 
 
@@ -191,25 +178,14 @@ class SPOPlus(nn.Module):
         """
         if instance_kwargs is None:
             instance_kwargs = {}
-        if self.smoothing:
-            spop_args = (true_cost, true_sol, true_obj, self.optmodel, self.minimize, instance_kwargs)
-            loss = PerturbedOpt.apply(pred_cost, 
-                                            spop_args, 
-                                            SPOPlusFunc, 
-                                            self.sigma, 
-                                            self.s, 
-                                            self.antithetic, 
-                                            self.control_variate, 
-                                            self.seed)
-        else:        
-            loss = SPOPlusFunc.apply(pred_cost, 
-                                true_cost, 
-                                true_sol, 
-                                true_obj, 
-                                self.optmodel, 
-                                self.minimize,                             
-                                instance_kwargs
-                            )
+        loss = SPOPlusFunc.apply(pred_cost, 
+                            true_cost, 
+                            true_sol, 
+                            true_obj, 
+                            self.optmodel, 
+                            self.minimize,                             
+                            instance_kwargs
+                        )
         return _normalize_per_sample(loss)
     
     
@@ -487,6 +463,135 @@ class PGLossFunc(Function):
             grad = - grad
         
         return grad_output * grad, None, None, None, None, None, None, None
+
+
+# -------------------------------------------------------------------------
+# Fenchel-Young (unsmoothed) Loss
+# -------------------------------------------------------------------------
+
+class FYLoss(nn.Module):
+    """
+    Autograd module for the (unsmoothed) Fenchel-Young loss using a custom gradient.
+    """
+
+    def __init__(
+        self,
+        optmodel: callable,
+        reduction: str = "mean",
+        minimize: bool = True,
+    ):
+        """
+        Args:
+            optmodel (callable): optimization model called as optmodel(cost, **instance_kwargs)
+                returning (solution, objective)
+            reduction (str): the reduction to apply to the output
+            minimize (bool): whether the optimization problem is minimization or maximization
+        """
+        super().__init__()
+        self.optmodel = optmodel
+        self.reduction = reduction
+        self.minimize = minimize
+
+    def forward(
+        self,
+        pred_cost: torch.Tensor,
+        true_cost: torch.Tensor | None = None,
+        true_sol: torch.Tensor | None = None,
+        true_obj: torch.Tensor | None = None,
+        instance_kwargs: dict | None = None,
+        **kwargs,
+    ):
+        loss = self.per_sample(
+            pred_cost,
+            true_cost=true_cost,
+            true_sol=true_sol,
+            true_obj=true_obj,
+            instance_kwargs=instance_kwargs,
+            **kwargs,
+        )
+        return _reduce_loss(loss, self.reduction)
+
+    def per_sample(
+        self,
+        pred_cost: torch.Tensor,
+        true_cost: torch.Tensor | None = None,
+        true_sol: torch.Tensor | None = None,
+        true_obj: torch.Tensor | None = None,
+        instance_kwargs: dict | None = None,
+        **kwargs,
+    ):
+        """
+        Per-sample loss.
+        """
+        if instance_kwargs is None:
+            instance_kwargs = {}
+        loss = FYFunc.apply(
+            pred_cost,
+            true_sol,
+            self.optmodel,
+            self.minimize,
+            instance_kwargs,
+        )
+        return _normalize_per_sample(loss)
+
+
+class FYFunc(Function):
+    """
+    Autograd function for the (unsmoothed) Fenchel-Young loss with custom gradient.
+    """
+
+    @staticmethod
+    def forward(ctx,
+            pred_cost: torch.tensor,
+            true_sol: torch.tensor,
+            optmodel: callable,
+            minimize: bool = True,
+            instance_kwargs: dict = {}):
+        """
+        Forward pass for unsmoothed Fenchel-Young loss.
+
+        Args:
+            pred_cost (torch.tensor): a batch of predicted values of the cost
+            true_sol (torch.tensor): a batch of true optimal solutions
+            optmodel (callable): solves the optimization problem given pred_cost
+            minimize (bool): whether the optimization problem is minimization or maximization
+            instance_kwargs (dict): per-sample data defining each optimization instance
+
+        Returns:
+            torch.tensor: per-sample Fenchel-Young loss
+        """
+        # Notation: T is predicted costs, z_star is true solution, z_T is predicted solution.
+        # Let optmodel handle any detaching / device moves as needed.
+        T = pred_cost
+        z_star = true_sol
+
+        with torch.no_grad():
+            z_T, _ = optmodel(T, **instance_kwargs)
+
+        # Inner product <pred_cost, pred_sol - true_sol>
+        loss = torch.sum(T * (z_T - z_star), dim=1)
+        if not minimize:
+            loss = -loss
+
+        # Save tensors for backward (kept on cpu).
+        ctx.save_for_backward(z_T, z_star)
+        ctx.minimize = minimize
+
+        return loss.to(device=pred_cost.device, dtype=pred_cost.dtype)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        """
+        Backward pass for Fenchel-Young loss.
+        """
+        z_T, z_star = ctx.saved_tensors
+        grad = (z_T - z_star).to(grad_output.device)
+        if not ctx.minimize:
+            grad = -grad
+
+        if grad_output.ndim == 1:
+            grad_output = grad_output.unsqueeze(1)
+        return grad_output * grad, None, None, None, None
     
 
 # -------------------------------------------------------------------------
@@ -572,210 +677,6 @@ class PG_Loss_Adaptive(nn.Module):
 
         loss = (term1 - term2) / h
         return _normalize_per_sample(loss)
-
-# -------------------------------------------------------------------------
-# perturbed Fenchel-Young (FYL) Loss
-# -------------------------------------------------------------------------
-    
-class perturbedFenchelYoung(nn.Module):
-    """
-    Wrapper function around perturbedFenchelYoungFunc with customized backwards pass.
-    This loss uses custom autograd behavior (manual backward). Extend
-    from nn.Module to use nn.Module's functionalities.
-    
-    Autograd module for Fenchel-Young loss using perturbation techniques:
-    Reference: <https://papers.nips.cc/paper_files/paper/2020/file/6bb56208f672af0dd65451f869fedfd9-Paper.pdf>    
-    """
-    def __init__(self, 
-                optmodel: callable, 
-                n_samples: int=10, 
-                sigma: float=1.0, 
-                seed: int=135,
-                reduction: str="mean", 
-                minimize: bool=True
-                ):
-        """
-        Args:
-            optmodel (callable): a function/class that solves an optimization problem using pred_cost. For every batch of data, we use
-                optmodel to solve the optimization problem using the predicted cost to get the optimal solution and objective value.
-                It must take in:                                 
-                    - pred_cost (torch.tensor): predicted coefficients/parameters for optimization model
-                    - instance_kwargs (dict): a dictionary of per-sample arrays of data that define each optimization instance
-                It must also:
-                    - detach tensors if necessary
-                    - loop or batch data solve 
-                In practice, the user should wrap their own optmodel in the decision_learning.utils.handle_solver function so that
-                these are all taken care of.
-            n_samples (int): number of Monte-Carlo samples
-            sigma (float): the amplitude of the perturbation
-            seed (int): random state seed, since we are sampling for perturbation
-            reduction (str): the reduction to apply to the output
-            minimize (bool): whether the optimization problem is minimization or maximization     
-        """
-        super(perturbedFenchelYoung, self).__init__()
-        
-        self.n_samples = n_samples # number of samples        
-        self.sigma = sigma # perturbation amplitude        
-        self.rnd = np.random.RandomState(seed) # random state        
-        self.reduction = reduction
-        self.minimize = minimize
-        self.optmodel = optmodel                
-        
-
-    def forward(
-            self,
-            pred_cost: torch.Tensor,
-            true_cost: torch.Tensor | None = None,
-            true_sol: torch.Tensor | None = None,
-            true_obj: torch.Tensor | None = None,
-            instance_kwargs: dict | None = None,
-            **kwargs,
-        ):
-        loss = self.per_sample(
-            pred_cost,
-            true_cost=true_cost,
-            true_sol=true_sol,
-            true_obj=true_obj,
-            instance_kwargs=instance_kwargs,
-            **kwargs,
-        )
-        return _reduce_loss(loss, self.reduction)
-
-    def per_sample(
-            self,
-            pred_cost: torch.Tensor,
-            true_cost: torch.Tensor | None = None,
-            true_sol: torch.Tensor | None = None,
-            true_obj: torch.Tensor | None = None,
-            instance_kwargs: dict | None = None,
-            **kwargs,
-        ):
-        """
-        Per-sample loss.
-        
-        Args:
-            pred_cost (torch.tensor): a batch of predicted values of the cost
-            true_sol (torch.tensor): a batch of true optimal solutions
-        """
-        if instance_kwargs is None:
-            instance_kwargs = {}
-        loss = perturbedFenchelYoungFunc.apply(pred_cost, 
-                            true_sol,
-                            self.n_samples,
-                            self.rnd,
-                            self.optmodel,
-                            self.sigma,
-                            self.minimize,                                                       
-                            instance_kwargs
-                        )
-        return _normalize_per_sample(loss)
-
-
-class perturbedFenchelYoungFunc(Function):
-    """
-    A autograd function for Fenchel-Young loss using perturbation techniques with a custom gradient
-    (manual backward).
-    """
-
-    @staticmethod
-    def forward(ctx, 
-            pred_cost: torch.tensor, 
-            true_sol: torch.tensor,             
-            n_samples: int,
-            sampler: np.random.RandomState,
-            optmodel: callable,
-            sigma: float=1.0,                         
-            minimize: bool=True,                    
-            instance_kwargs: dict = {}):        
-        """
-        Forward pass for perturbed Fenchel-Young loss.
-
-        Args:
-            pred_cost (torch.tensor): a batch of predicted values of the cost
-            true_sol (torch.tensor): a batch of true optimal solutions
-            n_samples (int): number of Monte-Carlo samples
-            sigma (float): the amplitude of the perturbation
-            sampler (np.random.RandomState): random state for sampling perturbations
-            optmodel (callable): a function/class that solves an optimization problem using pred_cost. For every batch of data, we use
-                optmodel to solve the optimization problem using the predicted cost to get the optimal solution and objective value.
-                It must take in:                                 
-                    - pred_cost (torch.tensor): predicted coefficients/parameters for optimization model
-                    - instance_kwargs (dict): a dictionary of per-sample arrays of data that define each optimization instance
-                It must also:
-                    - detach tensors if necessary
-                    - loop or batch data solve 
-                In practice, the user should wrap their own optmodel in the decision_learning.utils.handle_solver function so that
-                these are all taken care of.
-            minimize (bool): whether the optimization problem is minimization or maximization              
-            instance_kwargs (dict): a dictionary of per-sample arrays of data that define each optimization instance
-
-        Returns:
-            torch.tensor: solution expectations with perturbation
-        """
-        
-        # TODO: add support for detach and convert to numpy since optmodel may not be written for torch tensors
-        # detach (stops gradient tracking since we will compute custom gradient) and move to cpu. Do this since
-        # generally the optmodel is probably cpu based
-        
-        # rename variable names for convenience
-        # cp for predicted cost, w for true solution (based on true costs)
-        cp = pred_cost.detach().to("cpu")
-        w = true_sol.detach().to("cpu")
-        
-        # for FYL loss, we use mont-carlo sampling to create perturbations around the predicted cost. The perturbations
-        # are sampled from a normal distribution with mean 0 and standard deviation sigma. We then solve the optimization using perturbed costs,
-        # which induces perturbed solutions that are not locally constant and differentiatiable.
-        noises = sampler.normal(0, 1, size=(n_samples, *cp.shape)) 
-        # noise is shape (n_sample, batch_size (cp.shape[0]), cost vector dimension size (cp.shape[1])), so that 
-        # noise[i, :] is the i-th perturbation sample for the entire batch.
-        
-        # use broadcasting to add scaled noises (n_samples, batch_size, cost_vector_dim) to the predicted cost (batch_size, cost_vector_dim),
-        # so that for each perturbed sample noise[i, :] (batch_size, cost_vector_dim), the predicted cost is added to it since they are same shape.
-        # end result is ptb_c is shape (n_samples, batch_size, cost_vector_dim) where ptb_c[i, :] is the i-th perturbed cost sample for the entire batch.        
-        ptb_c = cp + sigma * noises # scale noises matrix with sigma
-        
-        # reshape from (n_samples, batch_size, cost_vector_dim) to (n_samples * batch_size, cost_vector_dim). This is because we need to plug each
-        # ptb_c[i, j, :] (ith perturbation, jth batch sample) into the optimization problem to get the optimal solution and objective value, and the optimization problem
-        # is solved for a given cost vector sample.
-        ptb_c = ptb_c.reshape(-1, noises.shape[2]) 
-        
-        # solve optimization problem to obtain optimal sol/obj val from perturbed costs (based on predicted costs),
-        # where now ptb_c[k, :] is k = i*j example that is the ith perturbed cost sample for the jth batch sample
-
-        ptb_sols, ptb_obj = optmodel(ptb_c, **instance_kwargs) 
-                 
-        # reshape back to (n_samples, batch_size, sol_vector_dim) where ptb_sols[i, j, :] is the ith perturbed solution sample for the jth batch sample to get back to original data shape
-        ptb_sols = ptb_sols.reshape(n_samples, -1, ptb_sols.shape[1])
-        
-        # expected/average solution - expectation over perturbed samples
-        exp_sol = ptb_sols.mean(axis=0) # axis=0 is the n_samples axis, so we get the expectation over n_sample perturbed samples for each original batch sample
-  
-        # save solutions for backwards pass
-        ctx.save_for_backward(exp_sol, w)
-        ctx.minimize = minimize
-        
-        loss = torch.sum((w - exp_sol)**2, axis=1)
-        if not minimize:
-            loss = -loss
-
-        loss = torch.as_tensor(loss, dtype=torch.float32, device=pred_cost.device)
-        return loss
-        
-        
-    @staticmethod
-    def backward(ctx, grad_output):
-        """
-        Backward pass for perturbed Fenchel-Young loss
-        """
-        exp_sol, w = ctx.saved_tensors
-        
-        grad = w - exp_sol
-        if not ctx.minimize:
-            grad = - grad
-                
-        grad_output = torch.unsqueeze(grad_output, dim=-1)
-        return grad * grad_output, None, None, None, None, None, None, None, None
-
 
 # -------------------------------------------------------------------------
 # Cosine Surrogates
@@ -1218,10 +1119,10 @@ LOSS_FUNCTIONS = {
     'MSE': MSELoss, # Mean Squared Error Loss
     'Cosine': CosineEmbeddingLoss, # Cosine Embedding Loss
     'PG': PG_Loss, # PG loss
+    'FY': FYLoss, # Fenchel-Young loss (unsmoothed)
     'PG_DCA': PG_DCA_Loss, # PG-DCA loss
     'PG_Adaptive': PG_Loss_Adaptive, # Adaptive PG loss
     'CILO': CILO_Loss, # CILO loss
-    'FYL': perturbedFenchelYoung, # perturbed Fenchel-Young loss
     'CosineSurrogateDotProdMSE': CosineSurrogateDotProdMSE, # Cosine Surrogate Dot Product MSE Loss
     'CosineSurrogateDotProdVecMag': CosineSurrogateDotProdVecMag # Cosine Surrogate Dot Product Vector Magnitude Loss
 }
