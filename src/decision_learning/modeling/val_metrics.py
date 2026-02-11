@@ -7,7 +7,7 @@ def decision_regret(pred_cost: torch.tensor,
         true_cost: np.ndarray, 
         true_obj: np.ndarray,
         optmodel: callable,
-        minimize: bool=True,        
+        is_minimization: bool=True,        
         instance_kwargs: dict = {}):
     """To calculate the decision regret based on predicted coefficients/parameters for optimization model, we need following:
     1. predicted coefficients/parameters for optimization model    
@@ -45,7 +45,7 @@ def decision_regret(pred_cost: torch.tensor,
     obj_hat = (w_hat * true_cost).sum(axis=1, keepdim=True)
         
     regret = (obj_hat - true_obj).sum()
-    if not minimize:
+    if not is_minimization:
         regret = -regret
     
     opt_obj_sum = torch.sum(torch.abs(true_obj)).item() + 1e-7

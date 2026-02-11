@@ -7,8 +7,8 @@ import pandas as pd
 import numpy as np
 import torch
 
-from decision_learning.modeling.loss import get_loss_function
-from decision_learning.utils import filter_kwargs, handle_solver
+from decision_learning.modeling.loss_spec import LossSpec
+from decision_learning.utils import handle_solver
 from decision_learning.modeling.train import train
 
 # logging
@@ -23,7 +23,7 @@ if not any(isinstance(handler, logging.StreamHandler) for handler in logger.hand
     stream_handler.setLevel(logging.INFO)
     stream_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
     # Add the stream handler to the logger
-    logger.addHandler(stream_handler)
+logger.addHandler(stream_handler)
     
     
 def make_loss_data_dict(X: Union[np.ndarray, torch.tensor], 
@@ -94,137 +94,130 @@ def run_loss_experiments(X_train: Union[np.ndarray, torch.tensor],
             true_cost_train: Union[np.ndarray, torch.tensor],             
             X_test: Union[np.ndarray, torch.tensor],
             true_cost_test: Union[np.ndarray, torch.tensor],            
-            predmodel: callable,
-            optmodel: callable,
+            pred_model: callable,
+            opt_oracle: callable,
             train_instance_kwargs: dict={},
             test_instance_kwargs: dict={},
-            val_split_params: dict={'test_size':0.2, 'random_state':42},
-            loss_names: List[str]=[], 
-            loss_configs: dict={}, 
-            user_defined_loss_inputs: List[dict]=[],
-            minimize: bool=True,
-            training_configs: dict=None,               
+            train_val_split_params: dict={'test_size':0.2, 'random_state':42},
+            loss_specs: List[LossSpec]=[],
+            is_minimization: bool=True,
+            train_config: dict=None,               
             save_models: bool=False,
             training_loop_verbose: bool=False):
-    """Run training across one or more loss functions (and optional grids).
+    """Run training across one or more loss specifications.
 
     Builds train/val/test dicts (including optimal solutions under true costs),
-    then trains a fresh copy of `predmodel` for each loss and hyperparameter
-    setting. Optionally includes user-defined losses.
+    then trains a fresh copy of `pred_model` for each LossSpec and hyperparameter
+    setting in its grid.
+
+    Args:
+        X_train, true_cost_train, X_test, true_cost_test: Train/test features and costs.
+        pred_model: PyTorch model that predicts costs from features.
+        opt_oracle: Callable solver/oracle used to compute optimal solutions/objectives and regret.
+        train_instance_kwargs, test_instance_kwargs: Per-sample instance data passed to the oracle.
+        train_val_split_params: Dict for `train_test_split` used to create train/val splits.
+        loss_specs: List of LossSpec objects defining loss constructors, grids, and extra batch data.
+        is_minimization: Whether the downstream optimization is a minimization problem.
+        train_config: Training loop configuration (batch size, epochs, lr, scheduler params).
+        save_models: Store trained models per loss/hyperparameter if True.
+        training_loop_verbose: Verbose training loop logging.
+
+    Usage:
+        loss_specs = [
+            LossSpec(
+                name="PG",
+                factory=PGLoss,
+                init_kwargs={},
+                aux={"optmodel": opt_oracle, "is_minimization": True},
+                hyper_grid=expand_hyperparam_grid({...}),
+            ),
+            LossSpec(name="MSE", factory=MSELoss, init_kwargs={}),
+        ]
+        metrics, models = run_loss_experiments(..., loss_specs=loss_specs)
     """
     
     # Require at least one loss
-    if not loss_names and user_defined_loss_inputs is None:
-        raise ValueError("Please provide at least one loss function")
+    if not loss_specs:
+        raise ValueError("Please provide at least one loss specification")
     
-    # default training configs. User can override through training_configs
+    # default training configs. User can override through train_config
     tr_config = {
         'dataloader_params': {'batch_size':32, 'shuffle':True},
         'num_epochs': 10,
         'lr': 0.01,
         'scheduler_params': None
         }
-    if training_configs is not None:
-        tr_config.update(training_configs)
+    if train_config is not None:
+        tr_config.update(train_config)
         
     
     # -----------------Initial data setup  -----------------
-    train_d = make_loss_data_dict(X_train, true_cost_train, optmodel, instance_kwargs=train_instance_kwargs)
-    train_dict, val_dict = split_train_val(train_d=train_d, val_split_params=val_split_params)
-    test_data = make_loss_data_dict(X_test, true_cost_test, optmodel, instance_kwargs=test_instance_kwargs)
+    train_d = make_loss_data_dict(X_train, true_cost_train, opt_oracle, instance_kwargs=train_instance_kwargs)
+    train_dict, val_dict = split_train_val(train_d=train_d, val_split_params=train_val_split_params)
+    test_data = make_loss_data_dict(X_test, true_cost_test, opt_oracle, instance_kwargs=test_instance_kwargs)
     
     
     #Store Outputs
     overall_metrics = []
     trained_models = {}
 
-    # loop through list of existing loss functions
-    for loss_idx, loss_n in enumerate(loss_names): 
+    # loop through list of existing and user-defined loss functions
+    for loss_idx, spec in enumerate(loss_specs): 
         
-        logger.info(f"""Loss number {loss_idx+1}/{len(loss_names)}, on loss function {loss_n}""")            
+        logger.info(f"""Loss number {loss_idx+1}/{len(loss_specs)}, on loss function {spec.name}""")            
         
-        cur_loss_fn = get_loss_function(loss_n)
-        
-        # loss function hyperparameters
-        cur_loss_fn_hyperparam_grid = [{}] # equivalent to using default values
-        if loss_n in loss_configs:
-            cur_loss_fn_hyperparam_grid = expand_hyperparam_grid(loss_configs[loss_n])        
-        
+        train_dict_processed = copy.deepcopy(train_dict)
+        val_dict_processed = copy.deepcopy(val_dict)
+        test_dict_processed = copy.deepcopy(test_data)
+
+        if spec.extra_batch_data:
+            extra_train, extra_val = split_train_val(
+                train_d=dict(spec.extra_batch_data),
+                val_split_params=train_val_split_params,
+            )
+            for key in extra_train:
+                if key in train_dict_processed or key in val_dict_processed:
+                    raise ValueError(f"extra_batch_data key '{key}' collides with existing batch field")
+            train_dict_processed.update(extra_train)
+            val_dict_processed.update(extra_val)
+
+        grid = spec.hyper_grid or [{}]
+
         #loop through hyperparameters for loss function
-        for idx, param_set in enumerate(cur_loss_fn_hyperparam_grid):
-            logger.info(f"""Trial {idx+1}/{len(cur_loss_fn_hyperparam_grid)} for running loss function {loss_n}, current hyperparameters: {param_set}""")            
+        for idx, hparams in enumerate(grid):
+            logger.info(f"""Trial {idx+1}/{len(grid)} for running loss function {spec.name}, current hyperparameters: {hparams}""")            
             
             # INSTANTIATE LOSS FUNCTION
-            # Copy the param_set to avoid modifying the original dictionary
-            orig_param_set = copy.deepcopy(param_set)
-            
-            # additional params to add to param_set - optmodel, minimization, etc.
-            additional_params = {"optmodel": optmodel, "minimize": minimize}
-            param_set.update(additional_params)
-            param_set = filter_kwargs(func=cur_loss_fn.__init__, kwargs=param_set)
-            cur_loss = cur_loss_fn(**param_set) # instantiate the loss function - optionally with configs if provided            
+            # Copy the hyperparams to avoid modifying the original dictionary
+            orig_param_set = copy.deepcopy(hparams)
 
-            # Use a copy to prevent modifications from persisting across loss functions
-            train_dict_processed = copy.deepcopy(train_dict)
-            
+            cur_loss = spec.factory(
+                **spec.init_kwargs,
+                **hparams,
+                **spec.aux,
+            )
+
             # -----------------TRAINING LOOP-----------------
             # each loss starts from the same model initialization
-            pred_model = copy.deepcopy(predmodel)
+            pred_model = copy.deepcopy(pred_model)
 
 
             #train
             metrics, trained_model = train(pred_model=pred_model, 
-                optmodel=optmodel,
+                optmodel=opt_oracle,
                 loss_fn=cur_loss,
                 train_data_dict=train_dict_processed,
-                val_data_dict=val_dict,
-                test_data_dict=test_data,
-                minimization=minimize,
+                val_data_dict=val_dict_processed,
+                test_data_dict=test_dict_processed,
+                minimization=is_minimization,
                 verbose=training_loop_verbose,                
                 **tr_config)
-            metrics['loss_name'] = loss_n            
+            metrics['loss_name'] = spec.name            
             metrics['hyperparameters'] = str(orig_param_set)
             overall_metrics.append(metrics)
             
             if save_models: 
-                trained_models[loss_n + "_" + str(orig_param_set)] = trained_model
-            
-    
-    # -----------------USER-DEFINED LOSS FUNCTIONS-----------------
-    for idx, user_defined_loss_input in enumerate(user_defined_loss_inputs):
-        
-        logger.info(f"""Trial {idx+1}/{len(user_defined_loss_inputs)} for user-defined loss functions, current loss function: {user_defined_loss_input['loss_name']}""")   
-        
-        cur_loss = user_defined_loss_input['loss']()
-        
-        # TODO: allow grids for user-defined losses
-        pred_model = copy.deepcopy(predmodel)
-        
-        # -----------------Initial data setup for user-defined loss functions-----------------
-        user_def_loss_train_d = make_loss_data_dict(X=X_train,
-                                true_cost=true_cost_train, 
-                                optmodel=optmodel,
-                                user_def_loss_inputs=user_defined_loss_input['data'], # user-provided data
-                                instance_kwargs=train_instance_kwargs)    
-        train_dict, val_dict = split_train_val(train_d=user_def_loss_train_d, val_split_params=val_split_params)        
-        
-        #train
-        metrics, trained_model = train(pred_model=pred_model,
-            optmodel=optmodel,
-            loss_fn=cur_loss,
-            train_data_dict=train_dict,
-            val_data_dict=val_dict,
-            test_data_dict=test_data,
-            minimization=minimize,
-            verbose=training_loop_verbose,
-            **tr_config)
-
-        metrics['loss_name'] = user_defined_loss_input['loss_name']
-        metrics['hyperparameters'] = None            
-        overall_metrics.append(metrics)
-        
-        if save_models: # store trained_model under loss_name and hyperparameters
-            trained_models[user_defined_loss_input['loss_name']] = trained_model
+                trained_models[spec.name + "_" + str(orig_param_set)] = trained_model
         
     overall_metrics = pd.concat(overall_metrics, ignore_index=True)
     

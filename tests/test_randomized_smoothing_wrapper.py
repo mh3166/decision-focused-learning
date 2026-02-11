@@ -112,7 +112,7 @@ def test_randomized_smoothing_wrapper_with_pg_loss():
         h=0.1,
         finite_diff_type="B",
         reduction="none",
-        minimize=True,
+        is_minimization=True,
     )
     wrapper = RandomizedSmoothingWrapper(
         base_loss=base,

@@ -105,8 +105,8 @@ def train(pred_model: nn.Module,
     pred_model.to(device)
     logger.info(f"Training on device: {device}")
     
-    # bind optmodel/minimize if the val metric accepts them
-    preset_params = {'optmodel': optmodel, 'minimize': minimization}
+    # bind optmodel/is_minimization if the val metric accepts them
+    preset_params = {'optmodel': optmodel, 'is_minimization': minimization}
     preset_params = {k: v for k, v in preset_params.items()
                      if k in inspect.signature(val_metric).parameters}
     val_metric = partial(val_metric, **preset_params)
@@ -146,7 +146,7 @@ def train(pred_model: nn.Module,
         val_regret = calc_test_regret(pred_model=pred_model,
                                 test_data_dict=val_data_dict,
                                 optmodel=optmodel,
-                                minimize=minimization                                
+                                is_minimization=minimization                                
                             )                      
         
         test_regret = np.nan
@@ -154,7 +154,7 @@ def train(pred_model: nn.Module,
             test_regret = calc_test_regret(pred_model=pred_model,
                                 test_data_dict=test_data_dict,
                                 optmodel=optmodel,
-                                minimize=minimization                                
+                                is_minimization=minimization                                
                             )
         
         # scheduler step
@@ -178,7 +178,7 @@ def train(pred_model: nn.Module,
 def calc_test_regret(pred_model: nn.Module, 
                     test_data_dict: dict, 
                     optmodel: callable, 
-                    minimize: bool=True,                            
+                    is_minimization: bool=True,                            
                     ):
     """Compute decision regret for a model on a dataset dict.
 
@@ -195,7 +195,7 @@ def calc_test_regret(pred_model: nn.Module,
                                 true_cost=test_data_dict['true_cost'],
                                 true_obj=test_data_dict['true_obj'],
                                 optmodel=optmodel,
-                                minimize=minimize,                                
+                                is_minimization=is_minimization,                                
                                 instance_kwargs=instance_kwargs)
         
     return regret
