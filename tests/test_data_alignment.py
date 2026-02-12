@@ -1,7 +1,7 @@
 import numpy as np
 
 from decision_learning.modeling.pipeline import (
-    lossfn_experiment_data_pipeline,
+    build_loss_data_dict,
     train_val_spl,
 )
 
@@ -29,7 +29,7 @@ def _echo_solver(true_cost, **instance_kwargs):
 def _preprocess_alignment_data(num_rows: int) -> dict:
     # Run the same preprocessing path as the pipeline to validate alignment invariants.
     data = _build_alignment_data(num_rows)
-    return lossfn_experiment_data_pipeline(
+    return build_loss_data_dict(
         X=data["X"],
         true_cost=data["true_cost"],
         optmodel=_echo_solver,
