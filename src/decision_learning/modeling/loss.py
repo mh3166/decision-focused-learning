@@ -114,7 +114,7 @@ class SPOPlusLoss(nn.Module):
 
     def __init__(self, 
                 optmodel: callable, 
-                minimize: bool=True,
+                is_minimization: bool=True,
                 reduction: str="mean"):
         """
         Args:
@@ -129,11 +129,11 @@ class SPOPlusLoss(nn.Module):
                 In practice, the user should wrap their own optmodel in the decision_learning.utils.handle_solver function so that
                 these are all taken care of.
             reduction (str): the reduction to apply to the output
-            minimize (bool): whether the optimization problem is minimization or maximization              
+            is_minimization (bool): whether the optimization problem is minimization or maximization              
         """
         super(SPOPlusLoss, self).__init__()        
         self.reduction = reduction
-        self.minimize = minimize
+        self.is_minimization = is_minimization
         self.optmodel = optmodel      
 
 
@@ -183,7 +183,7 @@ class SPOPlusLoss(nn.Module):
                             true_sol, 
                             true_obj, 
                             self.optmodel, 
-                            self.minimize,                             
+                            self.is_minimization,                             
                             instance_kwargs
                         )
         return _normalize_per_sample(loss)
@@ -201,7 +201,7 @@ class SPOPlusLossFunc(Function):
             true_sol: torch.tensor, 
             true_obj: torch.tensor,
             optmodel: callable,
-            minimize: bool = True,            
+            is_minimization: bool = True,            
             instance_kwargs: dict = {}):
         """
         Forward pass for SPO+.
@@ -222,7 +222,7 @@ class SPOPlusLossFunc(Function):
                     - loop or batch data solve 
                 In practice, the user should wrap their own optmodel in the decision_learning.utils.handle_solver function so that
                 these are all taken care of.                                
-            minimize (bool): whether the optimization problem is minimization or maximization            
+            is_minimization (bool): whether the optimization problem is minimization or maximization            
             instance_kwargs (dict): a dictionary of per-sample arrays of data that define each optimization instance
             
         Returns:
@@ -239,12 +239,12 @@ class SPOPlusLossFunc(Function):
         # calculate loss
         # SPO loss = - min_{w} (2 * c_hat - c)^T w + 2 * c_hat^T w - z = - z_hat + 2 * c_hat^T w - z
         loss = - z_hat + 2 * torch.sum(c_hat * w, axis = 1).reshape(-1,1) - z
-        if not minimize:
+        if not is_minimization:
             loss = - loss
         
         # save solutions for backwards pass
         ctx.save_for_backward(w, w_hat)
-        ctx.minimize = minimize
+        ctx.is_minimization = is_minimization
         
         return loss
 
@@ -255,7 +255,7 @@ class SPOPlusLossFunc(Function):
         """
         w, w_hat = ctx.saved_tensors
   
-        if ctx.minimize:
+        if ctx.is_minimization:
             grad = 2 * (w - w_hat)
         else:
             grad = 2 * (w_hat - w)
@@ -280,7 +280,7 @@ class PGLoss(nn.Module):
                 h: float=1, 
                 finite_diff_type: str='B', 
                 reduction: str="mean", 
-                minimize: bool=True
+                is_minimization: bool=True
             ):                 
         """
         Args:
@@ -300,7 +300,7 @@ class PGLoss(nn.Module):
                                             - Central Differencing/PGC ('C')
                                             - Forward Differencing/PGF ('F')
             reduction (str): the reduction to apply to the output
-            minimize (bool): whether the optimization problem is minimization or maximization            
+            is_minimization (bool): whether the optimization problem is minimization or maximization            
         """
         # the finite difference step size h must be positive
         if h < 0:
@@ -313,7 +313,7 @@ class PGLoss(nn.Module):
         self.h = h
         self.finite_diff_type = finite_diff_type
         self.reduction = reduction
-        self.minimize = minimize
+        self.is_minimization = is_minimization
         self.optmodel = optmodel
         
 
@@ -359,7 +359,7 @@ class PGLoss(nn.Module):
                             self.h, 
                             self.finite_diff_type, 
                             self.optmodel,
-                            self.minimize,                                           
+                            self.is_minimization,                                           
                             instance_kwargs
                         )
         return _normalize_per_sample(loss)
@@ -378,7 +378,7 @@ class PGFunc(Function):
             h: float, 
             finite_diff_type: str,
             optmodel: callable,
-            minimize: bool = True,            
+            is_minimization: bool = True,            
             instance_kwargs: dict = {}):            
         """
         Forward pass for PG Loss.
@@ -401,7 +401,7 @@ class PGFunc(Function):
                     - loop or batch data solve 
                 In practice, the user should wrap their own optmodel in the decision_learning.utils.handle_solver function so that
                 these are all taken care of.
-            minimize (bool): whether the optimization problem is minimization or maximization         
+            is_minimization (bool): whether the optimization problem is minimization or maximization         
             instance_kwargs (dict): a dictionary of per-sample arrays of data that define each optimization instance
             
             
@@ -438,12 +438,12 @@ class PGFunc(Function):
         
         # calculate loss
         loss = (obj_plus - obj_minus) * step_size
-        if not minimize:
+        if not is_minimization:
             loss = - loss
                 
         # save solutions and objects needed for backwards pass to compute gradients
         ctx.save_for_backward(sol_plus, sol_minus)        
-        ctx.minimize = minimize
+        ctx.is_minimization = is_minimization
         ctx.step_size = step_size
         return loss
 
@@ -459,7 +459,7 @@ class PGFunc(Function):
         # below, need to move (sol_plus - sol_minus) to the same device as grad_output since sol_plus and sol_minus
         # are on cpu and it is possible that grad_output is on a different device
         grad = step_size * (sol_plus - sol_minus).to(grad_output.device)
-        if not ctx.minimize: # maximization problem case
+        if not ctx.is_minimization: # maximization problem case
             grad = - grad
         
         return grad_output * grad, None, None, None, None, None, None, None
@@ -478,19 +478,19 @@ class FYLoss(nn.Module):
         self,
         optmodel: callable,
         reduction: str = "mean",
-        minimize: bool = True,
+        is_minimization: bool = True,
     ):
         """
         Args:
             optmodel (callable): optimization model called as optmodel(cost, **instance_kwargs)
                 returning (solution, objective)
             reduction (str): the reduction to apply to the output
-            minimize (bool): whether the optimization problem is minimization or maximization
+            is_minimization (bool): whether the optimization problem is minimization or maximization
         """
         super().__init__()
         self.optmodel = optmodel
         self.reduction = reduction
-        self.minimize = minimize
+        self.is_minimization = is_minimization
 
     def forward(
         self,
@@ -529,7 +529,7 @@ class FYLoss(nn.Module):
             pred_cost,
             true_sol,
             self.optmodel,
-            self.minimize,
+            self.is_minimization,
             instance_kwargs,
         )
         return _normalize_per_sample(loss)
@@ -545,7 +545,7 @@ class FYFunc(Function):
             pred_cost: torch.tensor,
             true_sol: torch.tensor,
             optmodel: callable,
-            minimize: bool = True,
+            is_minimization: bool = True,
             instance_kwargs: dict = {}):
         """
         Forward pass for unsmoothed Fenchel-Young loss.
@@ -554,7 +554,7 @@ class FYFunc(Function):
             pred_cost (torch.tensor): a batch of predicted values of the cost
             true_sol (torch.tensor): a batch of true optimal solutions
             optmodel (callable): solves the optimization problem given pred_cost
-            minimize (bool): whether the optimization problem is minimization or maximization
+            is_minimization (bool): whether the optimization problem is minimization or maximization
             instance_kwargs (dict): per-sample data defining each optimization instance
 
         Returns:
@@ -570,12 +570,12 @@ class FYFunc(Function):
 
         # Inner product <pred_cost, pred_sol - true_sol>
         loss = torch.sum(T * (z_T - z_star), dim=1)
-        if not minimize:
+        if not is_minimization:
             loss = -loss
 
         # Save tensors for backward (kept on cpu).
         ctx.save_for_backward(z_T, z_star)
-        ctx.minimize = minimize
+        ctx.is_minimization = is_minimization
 
         return loss.to(device=pred_cost.device, dtype=pred_cost.dtype)
 
@@ -586,7 +586,7 @@ class FYFunc(Function):
         """
         z_T, z_star = ctx.saved_tensors
         grad = (z_T - z_star).to(grad_output.device)
-        if not ctx.minimize:
+        if not ctx.is_minimization:
             grad = -grad
 
         if grad_output.ndim == 1:
@@ -606,12 +606,12 @@ class PGAdaptiveLoss(nn.Module):
     def __init__(self, optmodel, 
                     beta: float,
                     reduction: str="mean", 
-                    minimize: bool=True):
+                    is_minimization: bool=True):
         super().__init__()
         self.optmodel = optmodel
         self.beta = beta
         self.reduction = reduction
-        self.minimize = minimize
+        self.is_minimization = is_minimization
 
     def forward(
         self,
@@ -688,17 +688,17 @@ class CosineSurrogateDotProdMSELoss(nn.Module):
     - Dot product captures the direction/angle of the difference between predicted and true costs
     """
     
-    def __init__(self, alpha: float=1, reduction: str='mean', minimize: bool=True):
+    def __init__(self, alpha: float=1, reduction: str='mean', is_minimization: bool=True):
         """
         Args:
             alpha (float, optional): Weighting parameter for how heavily to weigh MSE component of loss vs dot product. Defaults to 1.
             reduction (str): the reduction to apply to the output. Defaults to 'mean'.
-            minimize (bool): whether the optimization problem is minimization or maximization. Defaults to True.
+            is_minimization (bool): whether the optimization problem is minimization or maximization. Defaults to True.
         """
         super(CosineSurrogateDotProdMSELoss, self).__init__()
         self.alpha = alpha
         self.reduction = reduction
-        self.minimize = minimize
+        self.is_minimization = is_minimization
         self.mse_loss = nn.MSELoss(reduction="none") # use off-the-shelf MSE loss
         
 
@@ -743,7 +743,7 @@ class CosineSurrogateDotProdMSELoss(nn.Module):
         
         # ----- Compute dot product -----
         dot_product = torch.sum(pred_cost * true_cost, dim=1)
-        if self.minimize:
+        if self.is_minimization:
             dot_product = -dot_product # negate dot product for minimization
         
         loss = self.alpha * mse + dot_product  # compute final loss as linear combination of MSE and dot product        
@@ -757,17 +757,17 @@ class CosineSurrogateDotProdVecMagLoss(nn.Module):
     since this would incentivize the predicted cost to be in the same direction as the true cost without the predictions artificially
     making the dot product higher by increasing the magnitude of the predicted cost.    
     """
-    def __init__(self, alpha: float=1, reduction: str='mean', minimize: bool=True):
+    def __init__(self, alpha: float=1, reduction: str='mean', is_minimization: bool=True):
         """
         Args:
             alpha (float, optional): Weight emphasis on minimizing magnitude of predicted vector (measured through self dot product). Defaults to 1.
             reduction (str): the reduction to apply to the output. Defaults to 'mean'.
-            minimize (bool): whether the optimization problem is minimization or maximization. Defaults to True.
+            is_minimization (bool): whether the optimization problem is minimization or maximization. Defaults to True.
         """
         super(CosineSurrogateDotProdVecMagLoss, self).__init__()
         self.alpha = alpha
         self.reduction = reduction
-        self.minimize = minimize
+        self.is_minimization = is_minimization
         
 
     def forward(
@@ -799,7 +799,7 @@ class CosineSurrogateDotProdVecMagLoss(nn.Module):
             **kwargs,
         ):
         """Computes the loss using a linear combination of two components:
-        1) self dot product - measures the magnitude of the predicted cost vector, trying to minimize it
+        1) self dot product - measures the magnitude of the predicted cost vector, trying to is_minimization it
         2) dot product of predicted and true costs - measures the direction of the predicted cost vector, trying to maximize it
 
         Args:
@@ -810,7 +810,7 @@ class CosineSurrogateDotProdVecMagLoss(nn.Module):
         
         # dot product of predicted and true costs - measure angle between predicted and true costs
         dot_product_ang = torch.sum(pred_cost * true_cost, dim=1)
-        if self.minimize:
+        if self.is_minimization:
             dot_product_ang = -dot_product_ang # negate dot product for minimization
         
         loss = self.alpha * dot_product_self + dot_product_ang  # compute final loss as linear combination of self dot product and dot product        
@@ -929,14 +929,14 @@ class PGDCALoss(nn.Module):
     def __init__(self, optmodel, 
                     h: float,
                     reduction: str="mean", 
-                    minimize: bool=True,
+                    is_minimization: bool=True,
                     update_every: int = 10, 
                     model0: nn.Module = None):
         super().__init__()
         self.optmodel = optmodel
         self.h = float(h)
         self.reduction = reduction
-        self.minimize = minimize
+        self.is_minimization = is_minimization
         self.update_every = int(update_every)
 
         self.model0 = model0  # frozen snapshot (created lazily)
@@ -1037,12 +1037,12 @@ class CILOLoss(nn.Module):
     def __init__(self, optmodel, 
                     beta: float,
                     reduction: str="mean", 
-                    minimize: bool=True):
+                    is_minimization: bool=True):
         super().__init__()
         self.optmodel = optmodel
         self.beta = beta
         self.reduction = reduction
-        self.minimize = minimize
+        self.is_minimization = is_minimization
 
     def forward(
         self,
@@ -1108,34 +1108,3 @@ class CILOLoss(nn.Module):
 
         loss = (term1 - term2)
         return _normalize_per_sample(loss)
-
-
-# -------------------------------------------------------------------------
-# Existing Loss Function Mapping
-# -------------------------------------------------------------------------
-# Registry mapping names to functions
-LOSS_FUNCTIONS = {
-    'SPO+': SPOPlusLoss, # SPO Plus Loss
-    'MSE': MSELoss, # Mean Squared Error Loss
-    'Cosine': CosineEmbeddingLoss, # Cosine Embedding Loss
-    'PG': PGLoss, # PG loss
-    'FY': FYLoss, # Fenchel-Young loss (unsmoothed)
-    'PG_DCA': PGDCALoss, # PG-DCA loss
-    'PG_Adaptive': PGAdaptiveLoss, # Adaptive PG loss
-    'CILO': CILOLoss, # CILO loss
-    'CosineSurrogateDotProdMSELoss': CosineSurrogateDotProdMSELoss, # Cosine Surrogate Dot Product MSE Loss
-    'CosineSurrogateDotProdVecMagLoss': CosineSurrogateDotProdVecMagLoss # Cosine Surrogate Dot Product Vector Magnitude Loss
-}
-
-def get_loss_function(name: str) -> callable:
-    """Utility function to get the loss function by name
-
-    Args:
-        name (str): name of the loss
-
-    Returns:
-        callable: loss function
-    """
-    if name not in LOSS_FUNCTIONS:
-        raise ValueError(f"Loss function '{name}' not found. Available loss functions: {list(LOSS_FUNCTIONS.keys())}")
-    return LOSS_FUNCTIONS[name]

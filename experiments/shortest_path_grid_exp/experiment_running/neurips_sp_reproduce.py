@@ -12,7 +12,17 @@ import decision_learning.modeling.pipeline
 import decision_learning.benchmarks.shortest_path_grid.data
 from decision_learning.utils import handle_solver
 from decision_learning.modeling.models import LinearRegression
-from decision_learning.modeling.pipeline import lossfn_experiment_pipeline, lossfn_hyperparam_grid
+from decision_learning.modeling.pipeline import run_loss_experiments, expand_hyperparam_grid
+from decision_learning.modeling.loss_spec import LossSpec
+from decision_learning.modeling.loss import (
+    SPOPlusLoss,
+    MSELoss,
+    FYLoss,
+    CosineEmbeddingLoss,
+    PGLoss,
+    CosineSurrogateDotProdVecMagLoss,
+    CosineSurrogateDotProdMSELoss,
+)
 from decision_learning.benchmarks.shortest_path_grid.data import genData
 from decision_learning.benchmarks.shortest_path_grid.oracle import opt_oracle
 
@@ -115,52 +125,81 @@ def main():
         # ------------loss function experiment pipeline------------
         
         # non-PG losses
-        preimplement_loss_results, preimplement_loss_models = lossfn_experiment_pipeline(X_train=generated_data['feat'],
+        preimplement_loss_specs = [
+            LossSpec(name='SPO+', factory=SPOPlusLoss, init_kwargs={}, aux={"optmodel": optmodel, "minimize": True}),
+            LossSpec(name='MSE', factory=MSELoss, init_kwargs={}),
+            LossSpec(name='FY', factory=FYLoss, init_kwargs={}, aux={"optmodel": optmodel, "minimize": True}),
+            LossSpec(name='Cosine', factory=CosineEmbeddingLoss, init_kwargs={}),
+        ]
+        preimplement_loss_results, preimplement_loss_models = run_loss_experiments(X_train=generated_data['feat'],
                 true_cost_train=generated_data['cost'],
                 X_test=generated_data_test['feat'],
                 true_cost_test=generated_data_test['cost_true'], 
-                predmodel=pred_model,
-                optmodel=optmodel,
+                pred_model=pred_model,
+                opt_oracle=optmodel,
                 train_instance_kwargs=train_instance_kwargs,
                 test_instance_kwargs=test_instance_kwargs,
-                val_split_params={'test_size':200, 'random_state':42},
-                loss_names=['SPO+', 'MSE', 'FYL', 'Cosine'],                            
-                training_configs={'num_epochs':100,
+                train_val_split_params={'test_size':200, 'random_state':42},
+                loss_specs=preimplement_loss_specs,
+                train_config={'num_epochs':100,
                                  'dataloader_params': {'batch_size':32, 'shuffle':True}},
                 save_models=True                                                                                 
                 )
         
         # PG loss
-        PG_init_results, PG_init_models = lossfn_experiment_pipeline(X_train=generated_data['feat'],
+        pg_loss_specs = [
+            LossSpec(
+                name='PG',
+                factory=PGLoss,
+                init_kwargs={},
+                aux={"optmodel": optmodel, "minimize": True},
+                hyper_grid=expand_hyperparam_grid({
+                    'h': [num_data**-.125, num_data**-.25, num_data**-.5, num_data**-1],
+                    'finite_diff_type': ['B', 'C', 'F'],
+                }),
+            )
+        ]
+        PG_init_results, PG_init_models = run_loss_experiments(X_train=generated_data['feat'],
                 true_cost_train=generated_data['cost'],
                 X_test=generated_data_test['feat'],
                 true_cost_test=generated_data_test['cost_true'], 
-                predmodel=preimplement_loss_models['SPO+_{}'],
-                optmodel=optmodel,
+                pred_model=preimplement_loss_models['SPO+_{}'],
+                opt_oracle=optmodel,
                 train_instance_kwargs=train_instance_kwargs,
                 test_instance_kwargs=test_instance_kwargs,
-                val_split_params={'test_size':200, 'random_state':42},
-                loss_names=['PG'],
-                loss_configs={'PG': {'h':[num_data**-.125, num_data**-.25, num_data**-.5, num_data**-1], 'finite_diff_type': ['B', 'C', 'F']}},
-                training_configs={'num_epochs':100,
+                train_val_split_params={'test_size':200, 'random_state':42},
+                loss_specs=pg_loss_specs,
+                train_config={'num_epochs':100,
                                  'dataloader_params': {'batch_size':32, 'shuffle':True}},
                 save_models=False
                 )
 
         # Cosine Surrogate Losses        
-        cos_surr_results, cos_surr_models = lossfn_experiment_pipeline(X_train=generated_data['feat'],
+        cos_surr_specs = [
+            LossSpec(
+                name='CosineSurrogateDotProdVecMagLoss',
+                factory=CosineSurrogateDotProdVecMagLoss,
+                init_kwargs={},
+                hyper_grid=expand_hyperparam_grid({'alpha':[0.01, 0.1, 1, 2.5, 5, 7.5, 10]}),
+            ),
+            LossSpec(
+                name='CosineSurrogateDotProdMSELoss',
+                factory=CosineSurrogateDotProdMSELoss,
+                init_kwargs={},
+                hyper_grid=expand_hyperparam_grid({'alpha':[0.01, 0.1, 1, 2.5, 5, 7.5, 10]}),
+            ),
+        ]
+        cos_surr_results, cos_surr_models = run_loss_experiments(X_train=generated_data['feat'],
                         true_cost_train=generated_data['cost'],
                         X_test=generated_data_test['feat'],
                         true_cost_test=generated_data_test['cost_true'], 
-                        predmodel=pred_model,
-                        optmodel=optmodel,
+                        pred_model=pred_model,
+                        opt_oracle=optmodel,
                         train_instance_kwargs=train_instance_kwargs,
                         test_instance_kwargs=test_instance_kwargs,
-                        val_split_params={'test_size':200, 'random_state':42},
-                        loss_names=['CosineSurrogateDotProdVecMag','CosineSurrogateDotProdMSE'],
-                        loss_configs={'CosineSurrogateDotProdVecMag': {'alpha':[0.01, 0.1, 1, 2.5, 5, 7.5, 10]},
-                                      'CosineSurrogateDotProdMSE': {'alpha':[0.01, 0.1, 1, 2.5, 5, 7.5, 10]}},
-                        training_configs={'num_epochs':100,
+                        train_val_split_params={'test_size':200, 'random_state':42},
+                        loss_specs=cos_surr_specs,
+                        train_config={'num_epochs':100,
                                          'dataloader_params': {'batch_size':32, 'shuffle':True}},
                         save_models=False
                         )

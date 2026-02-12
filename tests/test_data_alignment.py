@@ -1,8 +1,8 @@
 import numpy as np
 
 from decision_learning.modeling.pipeline import (
-    build_loss_data_dict,
-    train_val_spl,
+    make_loss_data_dict,
+    split_train_val,
 )
 
 
@@ -29,7 +29,7 @@ def _echo_solver(true_cost, **instance_kwargs):
 def _preprocess_alignment_data(num_rows: int) -> dict:
     # Run the same preprocessing path as the pipeline to validate alignment invariants.
     data = _build_alignment_data(num_rows)
-    return build_loss_data_dict(
+    return make_loss_data_dict(
         X=data["X"],
         true_cost=data["true_cost"],
         optmodel=_echo_solver,
@@ -56,10 +56,10 @@ def _assert_alignment(split_dict: dict) -> None:
     assert np.array_equal(ids_from_x, ids_from_solver), "X and instance_kwargs rows misaligned"
 
 
-def test_train_val_split_preserves_alignment():
+def test_split_train_valit_preserves_alignment():
     # Baseline check: splitting alone should preserve all row-wise correspondence.
     data = _build_alignment_data(num_rows=12)
-    train_dict, val_dict = train_val_spl(
+    train_dict, val_dict = split_train_val(
         train_d=data,
         val_split_params={"test_size": 0.25, "random_state": 123},
     )
@@ -71,7 +71,7 @@ def test_train_val_split_preserves_alignment():
 def test_preprocess_and_split_preserve_alignment():
     # Full path check: preprocessing + split should preserve row-wise correspondence.
     preprocessed = _preprocess_alignment_data(num_rows=12)
-    train_dict, val_dict = train_val_spl(
+    train_dict, val_dict = split_train_val(
         train_d=preprocessed,
         val_split_params={"test_size": 0.25, "random_state": 123},
     )
