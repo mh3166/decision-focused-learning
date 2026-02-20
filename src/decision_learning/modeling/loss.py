@@ -569,7 +569,7 @@ class FYFunc(Function):
             z_T, _ = optmodel(T, **instance_kwargs)
 
         # Inner product <pred_cost, pred_sol - true_sol>
-        loss = torch.sum(T * (z_T - z_star), dim=1)
+        loss = torch.sum(T * (z_star - z_T), dim=1)
         if not is_minimization:
             loss = -loss
 
