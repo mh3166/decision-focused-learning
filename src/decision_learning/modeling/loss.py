@@ -1163,9 +1163,9 @@ class CILOLoss(nn.Module):
             x_t_plus, obj_t_plus = self.optmodel(t_plus, **instance_kwargs)
             x_t_plus, obj_t_plus = x_t_plus.detach(), obj_t_plus.detach()
 
-        #VG thinks this is an error.  changed.
-        term1 = torch.sum(t_plus * x_t_plus, axis = 1)
-        #term1 = torch.sum(t * x_t_plus, axis = 1)
+        #VG thinks this is an error.  Believes it should be
+        #term1 = torch.sum(t_plus * x_t_plus, axis = 1)
+        term1 = torch.sum(t * x_t_plus, axis = 1)
         # print("term 1: ", term1.mean().item(), torch.sum(x_t_plus, axis = 1).mean().item())
 
         # Live term: gradients flow through t and through x_fn(t) if x_fn supports autograd
