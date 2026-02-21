@@ -615,8 +615,10 @@ class PGAdaptiveLoss(nn.Module):
     Adaptive PG loss where the perturbation scale h is chosen via CILO_lbda
     based on the current batch. pred_cost is computed externally and passed in.
     """
+    DEFAULT_BETA_SCALE = 1.1
+
     def __init__(self, optmodel, 
-                    beta: float,
+                    beta: float | None = None,
                     reduction: str="mean", 
                     is_minimization: bool=True):
         super().__init__()
@@ -657,6 +659,12 @@ class PGAdaptiveLoss(nn.Module):
         y = obs_cost
         if instance_kwargs is None:
             instance_kwargs = {}
+
+        if self.beta is None:
+            if obs_obj is None:
+                raise ValueError("PGAdaptiveLoss requires obs_obj to infer beta when beta is None.")
+            mean_obj = torch.mean(obs_obj.float()).item()
+            self.beta = self.DEFAULT_BETA_SCALE * mean_obj
 
         with torch.no_grad():
             h = CILO_lbda(t, y, self.optmodel, self.beta, kwargs=instance_kwargs)
@@ -1036,10 +1044,13 @@ class PGDCALoss(nn.Module):
 class CILOLoss(nn.Module):
     """
     CILO-style loss where the perturbation scale is chosen via CILO_lbda.
-    pred_cost is computed externally and passed in.
+    pred_cost is computed externally and passed in. This loss does not use
+    any frozen model; it relies on oracle evaluations at t and t + h y.
     """
+    DEFAULT_BETA_SCALE = 1.1
+
     def __init__(self, optmodel, 
-                    beta: float,
+                    beta: float | None = None,
                     reduction: str="mean", 
                     is_minimization: bool=True):
         super().__init__()
@@ -1056,8 +1067,8 @@ class CILOLoss(nn.Module):
         obs_obj: torch.Tensor | None = None,
         instance_kwargs: dict | None = None,  # per-sample data defining the optimization instance (e.g., feasible region).
         *,
-        X: torch.Tensor | None = None,           # inputs to model (needed for model0(X))
-        pred_model: nn.Module | None = None,     # live model (for snapshot updates)
+        X: torch.Tensor | None = None,           # unused for CILO; present for standardized signature
+        pred_model: nn.Module | None = None,     # unused for CILO; present for standardized signature
         **kwargs,
     ):
         loss = self.per_sample(
@@ -1080,8 +1091,8 @@ class CILOLoss(nn.Module):
         obs_obj: torch.Tensor | None = None,
         instance_kwargs: dict | None = None,  # per-sample data defining the optimization instance (e.g., feasible region).
         *,
-        X: torch.Tensor | None = None,           # inputs to model (needed for model0(X))
-        pred_model: nn.Module | None = None,     # live model (for snapshot updates)
+        X: torch.Tensor | None = None,           # unused for CILO; present for standardized signature
+        pred_model: nn.Module | None = None,     # unused for CILO; present for standardized signature
         **kwargs,
     ):
         t = pred_cost
@@ -1089,13 +1100,19 @@ class CILOLoss(nn.Module):
         if instance_kwargs is None:
             instance_kwargs = {}
 
+        if self.beta is None:
+            if obs_obj is None:
+                raise ValueError("CILOLoss requires obs_obj to infer beta when beta is None.")
+            mean_obj = torch.mean(obs_obj.float()).item()
+            self.beta = self.DEFAULT_BETA_SCALE * mean_obj
+
         with torch.no_grad():
             h = CILO_lbda(t, y, self.optmodel, self.beta, kwargs=instance_kwargs)
 
         t_plus = t + h * y
 
         # ----------------------------------------------------
-        # Compute reference term using frozen model and new model
+        # Compute objective terms at t and t + h y
         # ----------------------------------------------------
         with torch.no_grad():
             x_t, obj_t = self.optmodel(t, **instance_kwargs)

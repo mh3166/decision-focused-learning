@@ -323,14 +323,12 @@ def test_loss_standard_signature_acceptance(loss_cls):
         elif loss_cls is PGAdaptiveLoss:
             loss_fn = loss_cls(
                 optmodel=_box_oracle_with_kwargs,
-                beta=0.1,
                 reduction="mean",
                 is_minimization=True,
             )
         else:
             loss_fn = loss_cls(
                 optmodel=_box_oracle_with_kwargs,
-                beta=0.1,
                 reduction="mean",
                 is_minimization=True,
             )

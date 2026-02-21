@@ -1,4 +1,5 @@
 import inspect
+import time
 from functools import partial
 
 import pandas as pd
@@ -120,6 +121,7 @@ def train(pred_model: nn.Module,
     
     # ------------------------- TRAINING LOOP -------------------------
     for epoch in tqdm(range(num_epochs)):
+        epoch_start_time = time.time()
         
         # ------------------------- TRAINING -------------------------
         epoch_losses = []
@@ -161,10 +163,12 @@ def train(pred_model: nn.Module,
         if scheduler is not None:
             scheduler.step()
             
+        epoch_time_sec = time.time() - epoch_start_time
         cur_metric = {'epoch': epoch, 
                     'train_loss': np.mean(epoch_losses), 
                     'val_metric': val_regret,
-                    'test_regret': test_regret}
+                    'test_regret': test_regret,
+                    'epoch_time_sec': epoch_time_sec}
         metrics.append(cur_metric)
         
         if verbose:
