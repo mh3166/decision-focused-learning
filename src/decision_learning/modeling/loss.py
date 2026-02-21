@@ -280,7 +280,8 @@ class PGLoss(nn.Module):
                 h: float=1, 
                 finite_diff_type: str='B', 
                 reduction: str="mean", 
-                is_minimization: bool=True
+                is_minimization: bool=True,
+                scale_by_norm: bool=False,
             ):                 
         """
         Args:
@@ -300,7 +301,8 @@ class PGLoss(nn.Module):
                                             - Central Differencing/PGC ('C')
                                             - Forward Differencing/PGF ('F')
             reduction (str): the reduction to apply to the output
-            is_minimization (bool): whether the optimization problem is minimization or maximization            
+            is_minimization (bool): whether the optimization problem is minimization or maximization
+            scale_by_norm (bool): whether to scale per-sample perturbations by l2 norm
         """
         # the finite difference step size h must be positive
         if h < 0:
@@ -315,6 +317,7 @@ class PGLoss(nn.Module):
         self.reduction = reduction
         self.is_minimization = is_minimization
         self.optmodel = optmodel
+        self.scale_by_norm = scale_by_norm
         
 
     def forward(
@@ -359,7 +362,8 @@ class PGLoss(nn.Module):
                             self.h, 
                             self.finite_diff_type, 
                             self.optmodel,
-                            self.is_minimization,                                           
+                            self.is_minimization,
+                            self.scale_by_norm,                                           
                             instance_kwargs
                         )
         return _normalize_per_sample(loss)
@@ -378,7 +382,8 @@ class PGFunc(Function):
             h: float, 
             finite_diff_type: str,
             optmodel: callable,
-            is_minimization: bool = True,            
+            is_minimization: bool = True,
+            scale_by_norm: bool = False,
             instance_kwargs: dict = {}):            
         """
         Forward pass for PG Loss.
@@ -402,6 +407,7 @@ class PGFunc(Function):
                 In practice, the user should wrap their own optmodel in the decision_learning.utils.handle_solver function so that
                 these are all taken care of.
             is_minimization (bool): whether the optimization problem is minimization or maximization         
+            scale_by_norm (bool): whether to scale per-sample perturbations by l2 norm
             instance_kwargs (dict): a dictionary of per-sample arrays of data that define each optimization instance
             
             
@@ -413,19 +419,25 @@ class PGFunc(Function):
         cp = pred_cost 
         c = obs_cost 
 
+        if scale_by_norm:
+            norms = torch.norm(c, dim=1, keepdim=True)
+            scaled_c = torch.where(norms > 0, c / norms, c)
+        else:
+            scaled_c = c
+
         # for PG loss with zeroth order gradients, we need to perturb the predicted costs and solve
         # two optimization problems to approximate the gradient, where there is a cost plus and minus perturbation
         # that changes depending on the finite difference scheme.
         if finite_diff_type == 'C': # central diff: (1/2h) * (optmodel(pred_cost + h*obs_cost) - optmodel(pred_cost - h*obs_cost))
-            cp_plus = cp + h * c
-            cp_minus = cp - h * c
+            cp_plus = cp + h * scaled_c
+            cp_minus = cp - h * scaled_c
             step_size = 1 / (2 * h)
         elif finite_diff_type == 'B': # back diff: (1/h) * (optmodel(pred_cost) - optmodel(pred_cost - h*obs_cost))
             cp_plus = cp
-            cp_minus = cp - h * c
+            cp_minus = cp - h * scaled_c
             step_size = 1 / h
         elif finite_diff_type == 'F': # forward diff: (1/h) * (optmodel(pred_cost + h*obs_cost) - optmodel(pred_cost))
-            cp_plus = cp + h * c
+            cp_plus = cp + h * scaled_c
             cp_minus = cp
             step_size = 1 / h
 

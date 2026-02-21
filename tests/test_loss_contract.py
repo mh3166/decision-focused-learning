@@ -47,6 +47,14 @@ def _box_oracle_with_kwargs(costs: torch.Tensor, **instance_kwargs):
     return _box_oracle_torch(costs, instance_kwargs["b"])
 
 
+def _sum_obj_oracle(costs: torch.Tensor, **instance_kwargs):
+    if costs.dim() == 1:
+        costs = costs.unsqueeze(0)
+    z = torch.ones_like(costs)
+    obj = torch.sum(costs * z, dim=1, keepdim=True)
+    return z, obj
+
+
 def _make_standard_batch():
     batch_size = 4
     obs_cost = torch.tensor(
@@ -226,6 +234,41 @@ def test_pg_loss_adaptive_contract_backward_step():
     loss.backward()
     assert pred_model.weight.grad is not None
     assert torch.isfinite(pred_model.weight.grad).all()
+
+
+def test_pg_loss_scale_by_norm_central_diff():
+    torch.manual_seed(0)
+    obs_cost = torch.tensor(
+        [[3.0, 4.0], [0.0, 0.0], [-3.0, 0.0]],
+        dtype=torch.float32,
+    )
+    pred_cost = torch.zeros_like(obs_cost)
+
+    loss_fn_scaled = PGLoss(
+        optmodel=_sum_obj_oracle,
+        h=0.5,
+        finite_diff_type="C",
+        reduction="none",
+        is_minimization=True,
+        scale_by_norm=True,
+    )
+    loss_fn_unscaled = PGLoss(
+        optmodel=_sum_obj_oracle,
+        h=0.5,
+        finite_diff_type="C",
+        reduction="none",
+        is_minimization=True,
+        scale_by_norm=False,
+    )
+
+    scaled_loss = loss_fn_scaled.per_sample(pred_cost, obs_cost=obs_cost)
+    unscaled_loss = loss_fn_unscaled.per_sample(pred_cost, obs_cost=obs_cost)
+
+    expected_scaled = torch.tensor([1.4, 0.0, -1.0], dtype=torch.float32)
+    expected_unscaled = torch.tensor([7.0, 0.0, -3.0], dtype=torch.float32)
+
+    assert torch.allclose(scaled_loss, expected_scaled, rtol=1e-6, atol=1e-6)
+    assert torch.allclose(unscaled_loss, expected_unscaled, rtol=1e-6, atol=1e-6)
 
 
 def test_cilo_loss_contract_backward_step():
