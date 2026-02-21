@@ -15,4 +15,4 @@ module load legacy/CentOS7
 module load gcc/11.3.0
 module load python/3.9.12
 
-python3 experiments/shortest_path_grid_exp/sp_experiment_slurm.py $SLURM_ARRAY_TASK_ID
+python3 sp_experiment_slurm.py $SLURM_ARRAY_TASK_ID
