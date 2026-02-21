@@ -20,7 +20,7 @@ def genData(
 
     Returns a dict with keys:
     - feat: (n, 1)
-    - cost_true: (n, 1) noiseless f*(X)
+    - cond_exp_cost: (n, 1) noiseless f*(X)
     - cost: (n, 1) noisy observations Y
     - epsilon: (n, 1) noise
     - x: (n,) 1D convenience vector
@@ -51,7 +51,7 @@ def genData(
 
     return {
         "feat": x,
-        "cost_true": f_true,
+        "cond_exp_cost": f_true,
         "cost": y,
         "epsilon": epsilon,
         "x": x1d,

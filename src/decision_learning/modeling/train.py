@@ -182,8 +182,11 @@ def calc_test_regret(pred_model: nn.Module,
                     ):
     """Compute decision regret for a model on a dataset dict.
 
-    Expects `test_data_dict` to contain `X`, `true_cost`, and `true_obj`. Runs
-    prediction under `torch.no_grad()` and calls `decision_regret`.
+    Expects `test_data_dict` to contain `X` and either:
+    - `cond_exp_cost` and `full_info_obj`, or
+    - `obs_cost` and `obs_obj` (fallback benchmark when conditional expectations are unavailable).
+
+    Runs prediction under `torch.no_grad()` and calls `decision_regret`.
     """
     pred_model.eval()
     with torch.no_grad():
@@ -191,11 +194,27 @@ def calc_test_regret(pred_model: nn.Module,
         pred = pred_model(X)
         
         instance_kwargs = test_data_dict.get('instance_kwargs', {})      
-        regret = decision_regret(pred,
-                                true_cost=test_data_dict['true_cost'],
-                                true_obj=test_data_dict['true_obj'],
-                                optmodel=optmodel,
-                                is_minimization=is_minimization,                                
-                                instance_kwargs=instance_kwargs)
+        if "cond_exp_cost" in test_data_dict and "full_info_obj" in test_data_dict:
+            # print("calc_test_regret: using conditional expectation benchmark (cond_exp_cost/full_info_obj).")
+            regret = decision_regret(
+                pred,
+                cond_exp_cost=test_data_dict["cond_exp_cost"],
+                full_info_obj=test_data_dict["full_info_obj"],
+                optmodel=optmodel,
+                is_minimization=is_minimization,
+                instance_kwargs=instance_kwargs,
+            )
+        else:
+            # Without conditional expectations, benchmark against an (unachievable) oracle
+            # that can see the costs ahead of time.
+            # print("calc_test_regret: using observed-cost fallback benchmark (obs_cost/obs_obj).")
+            regret = decision_regret(
+                pred,
+                cond_exp_cost=test_data_dict["obs_cost"],
+                full_info_obj=test_data_dict["obs_obj"],
+                optmodel=optmodel,
+                is_minimization=is_minimization,
+                instance_kwargs=instance_kwargs,
+            )
         
     return regret

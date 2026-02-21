@@ -285,7 +285,12 @@ def genData(num_data: int,
         planted_good_pwl_params (dict): dictionary of parameters {'slope0', 'int0', 'slope1', 'int1'} for good edges input to piecewise_linear
         planted_bad_pwl_params (dict): dictionary of parameters {'slope0', 'int0', 'slope1', 'int1'} for bad edges input to piecewise_linear
     Returns:
-        dict: dictionary containing feature vectors, true cost vectors, noisy cost vectors, and noise vectors
+        dict: dictionary containing:
+            - feat: feature vectors
+            - cost_noplant: costs without planted paths (no noise)
+            - cond_exp_cost: costs with planted paths (no noise)
+            - cost: costs with planted paths and noise
+            - epsilon: noise vectors
     """
     rnd = np.random.RandomState(seed) 
     
@@ -322,10 +327,9 @@ def genData(num_data: int,
     # aggregate data    
     final_data = {'feat': data['x'],
                   'cost_noplant': data['c'], # cost vectors with no planted good and bad paths, no noise
-                  'cost_true': data['c_plant'], # cost vectors with planted good and bad paths, no noise
+                  'cond_exp_cost': data['c_plant'], # cost vectors with planted good and bad paths, no noise
                   'cost': data_noise['cost_noise'], # cost vectors with planted good and bad paths, with noise
                   'epsilon': data_noise['noise']}
     return final_data                  
-
 
 

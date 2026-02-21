@@ -9,7 +9,7 @@ def test_hinge_smoke():
     n = 10
     data = genData(num_data=n, m=0.0, alpha=1.0, seed=123)
 
-    for key in ["feat", "cost_true", "cost", "epsilon"]:
+    for key in ["feat", "cond_exp_cost", "cost", "epsilon"]:
         assert key in data
         assert data[key].shape == (n, 1)
         assert np.isfinite(data[key]).all()

@@ -27,20 +27,26 @@ logger.addHandler(stream_handler)
     
     
 def make_loss_data_dict(X: Union[np.ndarray, torch.tensor], 
-                                true_cost: Union[np.ndarray, torch.tensor], 
+                                obs_cost: Union[np.ndarray, torch.tensor], 
                                 optmodel: callable,
                                 user_def_loss_inputs: dict={},
-                                instance_kwargs: dict={}):
+                                instance_kwargs: dict={},
+                                cond_exp_cost: Union[np.ndarray, torch.tensor] | None = None):
     """Build the data dict expected by loss functions.
 
     Computes the optimal solution/objective under the true cost and returns a
-    dictionary with standardized keys: `X`, `true_cost`, `true_sol`,
-    `true_obj`, and `instance_kwargs`. Extra inputs for custom losses can be
+    dictionary with standardized keys: `X`, `obs_cost`, `obs_sol`,
+    `obs_obj`, and `instance_kwargs`. Extra inputs for custom losses can be
     merged in via `user_def_loss_inputs`.
     """
     
-    sol, obj = optmodel(true_cost, **instance_kwargs)
-    final_data = {"X": X, "true_cost": true_cost, "true_sol": sol, "true_obj": obj, "instance_kwargs": instance_kwargs}
+    sol, obj = optmodel(obs_cost, **instance_kwargs)
+    final_data = {"X": X, "obs_cost": obs_cost, "obs_sol": sol, "obs_obj": obj, "instance_kwargs": instance_kwargs}
+
+    if cond_exp_cost is not None:
+        _, full_info_obj = optmodel(cond_exp_cost, **instance_kwargs)
+        final_data["cond_exp_cost"] = cond_exp_cost
+        final_data["full_info_obj"] = full_info_obj
     
     if user_def_loss_inputs:
         final_data.update(user_def_loss_inputs)
@@ -91,9 +97,9 @@ def expand_hyperparam_grid(hyperparams: dict[str, list]) -> list[dict]:
 
 
 def run_loss_experiments(X_train: Union[np.ndarray, torch.tensor], 
-            true_cost_train: Union[np.ndarray, torch.tensor],             
+            obs_cost_train: Union[np.ndarray, torch.tensor],             
             X_test: Union[np.ndarray, torch.tensor],
-            true_cost_test: Union[np.ndarray, torch.tensor],            
+            obs_cost_test: Union[np.ndarray, torch.tensor],            
             pred_model: callable,
             opt_oracle: callable,
             train_instance_kwargs: dict={},
@@ -103,7 +109,9 @@ def run_loss_experiments(X_train: Union[np.ndarray, torch.tensor],
             is_minimization: bool=True,
             train_config: dict=None,               
             save_models: bool=False,
-            training_loop_verbose: bool=False):
+            training_loop_verbose: bool=False,
+            cond_exp_cost_train: Union[np.ndarray, torch.tensor] | None = None,
+            cond_exp_cost_test: Union[np.ndarray, torch.tensor] | None = None):
     """Run training across one or more loss specifications.
 
     Builds train/val/test dicts (including optimal solutions under true costs),
@@ -111,7 +119,7 @@ def run_loss_experiments(X_train: Union[np.ndarray, torch.tensor],
     setting in its grid.
 
     Args:
-        X_train, true_cost_train, X_test, true_cost_test: Train/test features and costs.
+        X_train, obs_cost_train, X_test, obs_cost_test: Train/test features and costs.
         pred_model: PyTorch model that predicts costs from features.
         opt_oracle: Callable solver/oracle used to compute optimal solutions/objectives and regret.
         train_instance_kwargs, test_instance_kwargs: Per-sample instance data passed to the oracle.
@@ -152,9 +160,21 @@ def run_loss_experiments(X_train: Union[np.ndarray, torch.tensor],
         
     
     # -----------------Initial data setup  -----------------
-    train_d = make_loss_data_dict(X_train, true_cost_train, opt_oracle, instance_kwargs=train_instance_kwargs)
+    train_d = make_loss_data_dict(
+        X_train,
+        obs_cost_train,
+        opt_oracle,
+        instance_kwargs=train_instance_kwargs,
+        cond_exp_cost=cond_exp_cost_train,
+    )
     train_dict, val_dict = split_train_val(train_d=train_d, val_split_params=train_val_split_params)
-    test_data = make_loss_data_dict(X_test, true_cost_test, opt_oracle, instance_kwargs=test_instance_kwargs)
+    test_data = make_loss_data_dict(
+        X_test,
+        obs_cost_test,
+        opt_oracle,
+        instance_kwargs=test_instance_kwargs,
+        cond_exp_cost=cond_exp_cost_test,
+    )
     
     
     #Store Outputs
