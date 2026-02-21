@@ -632,9 +632,6 @@ class PGAdaptiveLoss(nn.Module):
         obs_sol: torch.Tensor | None = None,
         obs_obj: torch.Tensor | None = None,
         instance_kwargs: dict | None = None,  # per-sample data defining the optimization instance (e.g., feasible region).
-        *,
-        X: torch.Tensor | None = None,           # inputs to model (needed for model0(X))
-        pred_model: nn.Module | None = None,     # live model (for snapshot updates)
         **kwargs,
     ):
         loss = self.per_sample(
@@ -643,8 +640,6 @@ class PGAdaptiveLoss(nn.Module):
             obs_sol=obs_sol,
             obs_obj=obs_obj,
             instance_kwargs=instance_kwargs,
-            X=X,
-            pred_model=pred_model,
             **kwargs,
         )
         return _reduce_loss(loss, self.reduction)
@@ -656,9 +651,6 @@ class PGAdaptiveLoss(nn.Module):
         obs_sol: torch.Tensor | None = None,
         obs_obj: torch.Tensor | None = None,
         instance_kwargs: dict | None = None,  # per-sample data defining the optimization instance (e.g., feasible region).
-        *,
-        X: torch.Tensor | None = None,           # inputs to model (needed for model0(X))
-        pred_model: nn.Module | None = None,     # live model (for snapshot updates)
         **kwargs,
     ):
         t = pred_cost
@@ -672,7 +664,7 @@ class PGAdaptiveLoss(nn.Module):
         t_plus = t + h * y
 
         # ----------------------------------------------------
-        # Compute reference term using frozen model and new model
+        # Compute objective terms at t and t + h y
         # ----------------------------------------------------
         with torch.no_grad():
             x_t, obj_t = self.optmodel(t, **instance_kwargs)
@@ -1114,7 +1106,7 @@ class CILOLoss(nn.Module):
         term1 = torch.sum(t * x_t_plus, axis = 1)
         # print("term 1: ", term1.mean().item(), torch.sum(x_t_plus, axis = 1).mean().item())
 
-        # Live term: gradients flow through t and through x_fn(t-hc) if x_fn supports autograd
+        # Live term: gradients flow through t and through x_fn(t) if x_fn supports autograd
         term2 = torch.sum(t * x_t, axis = 1)
         # print("term 2: ", term2.mean().item(), torch.sum(x_t_plus, axis = 1).mean().item())
 

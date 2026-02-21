@@ -132,8 +132,9 @@ def _build_loss_inputs_for_reduction(loss_cls, obs_cost, batch, seed: int = 0):
     if loss_cls in (PGDCALoss, PGAdaptiveLoss, CILOLoss):
         pred_model, X, pred_cost = _build_linear_pred_cost(obs_cost, seed=seed)
         batch = dict(batch)
-        batch["X"] = X
-        batch["pred_model"] = pred_model
+        if loss_cls in (PGDCALoss, PGAdaptiveLoss):
+            batch["X"] = X
+            batch["pred_model"] = pred_model
         pred = pred_cost
 
         if loss_cls is PGDCALoss:
@@ -276,7 +277,7 @@ def test_cilo_loss_contract_backward_step():
     obs_cost, batch = _make_standard_batch()
     instance_kwargs = batch["instance_kwargs"]
 
-    pred_model, X, pred_cost = _build_linear_pred_cost(obs_cost, seed=2)
+    pred_model, _, pred_cost = _build_linear_pred_cost(obs_cost, seed=2)
 
     loss_fn = CILOLoss(
         optmodel=_box_oracle_with_kwargs,
@@ -287,9 +288,7 @@ def test_cilo_loss_contract_backward_step():
 
     loss = loss_fn(
         pred_cost,
-        X=X,
         obs_cost=obs_cost,
-        pred_model=pred_model,
         instance_kwargs=instance_kwargs,
     )
     assert torch.is_tensor(loss)
@@ -309,8 +308,9 @@ def test_loss_standard_signature_acceptance(loss_cls):
     if loss_cls in (PGDCALoss, PGAdaptiveLoss, CILOLoss):
         pred_model, X, pred_cost = _build_linear_pred_cost(obs_cost, seed=3)
         batch = dict(batch)
-        batch["X"] = X
-        batch["pred_model"] = pred_model
+        if loss_cls in (PGDCALoss, PGAdaptiveLoss):
+            batch["X"] = X
+            batch["pred_model"] = pred_model
         pred = pred_cost
         if loss_cls is PGDCALoss:
             loss_fn = loss_cls(
@@ -396,10 +396,9 @@ def test_pred_cost_grad_for_pg_family_losses(loss_cls):
 
     loss = loss_fn(
         pred_cost,
-        X=X,
         obs_cost=obs_cost,
-        pred_model=pred_model,
         instance_kwargs=instance_kwargs,
+        **({"X": X, "pred_model": pred_model} if loss_cls in (PGDCALoss, PGAdaptiveLoss) else {}),
     )
     loss.backward()
     assert pred_cost.grad is not None
