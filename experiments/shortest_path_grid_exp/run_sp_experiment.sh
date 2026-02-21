@@ -11,8 +11,8 @@
 
 
 module purge
-module load legacy/CentOS7
-module load gcc/11.3.0
-module load python/3.9.12
+module load ver/2506  
+module load gcc/14.3.0
+module load python/3.11.14
 
 python3 sp_experiment_slurm.py $SLURM_ARRAY_TASK_ID
