@@ -19,6 +19,7 @@ from decision_learning.modeling.loss import (
     PGLoss,
     PGAdaptiveLoss,
 )
+from decision_learning.modeling.smoothing import RandomizedSmoothingWrapper
 from decision_learning.benchmarks.shortest_path_grid.data import genData
 from decision_learning.benchmarks.shortest_path_grid.oracle import opt_oracle
 
@@ -137,8 +138,7 @@ def main():
     )
 
     generated_data_test = genData(
-        # TEMP: smaller test set for quick local sanity check
-        num_data=500,
+        num_data=10000,
         num_features=num_feat,
         grid=grid,
         deg=deg,
@@ -166,6 +166,16 @@ def main():
     loss_specs = [
         LossSpec(name='SPOPlus', factory=SPOPlusLoss, init_kwargs={}, aux={"optmodel": optmodel, "is_minimization": True}),
         LossSpec(name='FY', factory=FYLoss, init_kwargs={}, aux={"optmodel": optmodel, "is_minimization": True}),
+        LossSpec(
+            name='FY_Smooth',
+            factory=RandomizedSmoothingWrapper,
+            init_kwargs={
+                "base_loss": FYLoss(optmodel=optmodel, is_minimization=True),
+                "sigma": 0.1,
+                "s": 10,
+                "control_variate": True,
+            },
+        ),
         LossSpec(name='MSE', factory=MSELoss, init_kwargs={}),
         LossSpec(
             name='DBB',
@@ -197,8 +207,7 @@ def main():
     ]
 
     train_config = {
-        # TEMP: reduce epochs for quick local sanity check
-        'num_epochs': 20,
+        'num_epochs': 100,
         'dataloader_params': {'batch_size': 32, 'shuffle': True},
     }
 

@@ -52,49 +52,50 @@ def CILO_lbda(
         sol, _ = optmodel(pred_cost + lbda * Y, **kwargs)  # sol: (batch, d)
         # mean over batch of dot(Y_i, sol_i)
         return (torch.sum(Y * sol, dim=1).mean() - beta).item()
+    # ---- 0) Check lambda = 0 first and exit early. ----
+    res0 = residual(0.0)
+    if res0 <= 0.0:
+        return 0.0 #already feasible at lambda = 0
 
-    # ---- 1) Bracket root: find [lbda_l, lbda_u] with res(l) > 0 and res(u) <= 0 ----
+    # ---- 1) Bracket feasibility boundary: 
+    #find [lbda_l, lbda_u] with res(l) > 0 and res(u) <= 0 ----
     lbda_l = 0.0
-    lbda_u = float(init_upper)
+    res_l = res0  # > 0 above
 
+    lbda_u = float(init_upper)
     res_u = residual(lbda_u)
+
     expand_steps = 0
-    while res_u > 0 and expand_steps < max_expand:
-        lbda_l = lbda_u
+    while res_u > 0.0 and expand_steps < max_expand:
+        lbda_l, res_l = lbda_u, res_u
         lbda_u *= 2.0
         res_u = residual(lbda_u)
         expand_steps += 1
 
-    # If we never found res_u <= 0, we can't bracket; return best effort upper.
-    if res_u > 0:
+    # If we never found feasibility, we can't bracket; return best effort upper.
+    # (This still returns an infeasible lambda if res_u > 0.)
+    if res_u > 0.0:
         return lbda_u
 
-    # ---- 2) Bisection on bracket ----
-    res_l = residual(lbda_l)  # should typically be > 0 for a proper bracket
-    lbda = 0.5 * (lbda_l + lbda_u)
-
+    # ---- 2) Bisection to find the smallest feasible lambda ----
+    # Invariant: res_l > 0 (infeasible), res_u <= 0 (feasible)
     for _ in range(max_bisect):
-        res_mid = residual(lbda)
+        lbda_mid = 0.5 * (lbda_l + lbda_u)
+        res_mid = residual(lbda_mid)
 
-        if abs(res_mid) <= sens:
-            break
-
-        # Maintain invariant: res(l) > 0, res(u) <= 0
-        if res_mid > 0:
-            lbda_l, res_l = lbda, res_mid
+        # If mid is feasible, tighten the upper bound (seek smallest feasible)
+        if res_mid <= 0.0:
+            lbda_u, res_u = lbda_mid, res_mid
         else:
-            lbda_u, res_u = lbda, res_mid
+            lbda_l, res_l = lbda_mid, res_mid
 
-        new_lbda = 0.5 * (lbda_l + lbda_u)
-
-        # Optional early stop: interval too small and we're on the feasible side
-        if abs(new_lbda - lbda) < sens and res_mid <= 0:
-            lbda = new_lbda
+        # Stop when interval is small enough (lambda-scale tolerance)
+        if (lbda_u - lbda_l) <= sens:
             break
 
-        lbda = new_lbda
+    # note, even if we max out, lbda_u is feasible.
+    return float(lbda_u)
 
-    return float(lbda)
 
 # -------------------------------------------------------------------------
 # SPO Plus (Smart Predict and Optimize Plus) Loss
@@ -615,7 +616,7 @@ class PGAdaptiveLoss(nn.Module):
     Adaptive PG loss where the perturbation scale h is chosen via CILO_lbda
     based on the current batch. pred_cost is computed externally and passed in.
     """
-    DEFAULT_BETA_SCALE = 1.1
+    DEFAULT_BETA_SCALE = 0.1
 
     def __init__(self, optmodel, 
                     beta: float | None = None,
@@ -664,30 +665,68 @@ class PGAdaptiveLoss(nn.Module):
             if obs_obj is None:
                 raise ValueError("PGAdaptiveLoss requires obs_obj to infer beta when beta is None.")
             mean_obj = torch.mean(obs_obj.float()).item()
-            self.beta = self.DEFAULT_BETA_SCALE * mean_obj
+            offset = self.DEFAULT_BETA_SCALE * abs(mean_obj)
+            if self.is_minimization:
+                self.beta = mean_obj + offset
+            else:
+                self.beta = mean_obj - offset
 
         with torch.no_grad():
             h = CILO_lbda(t, y, self.optmodel, self.beta, kwargs=instance_kwargs)
 
         t_plus = t + h * y
 
-        # ----------------------------------------------------
-        # Compute objective terms at t and t + h y
-        # ----------------------------------------------------
+        # # ----------------------------------------------------
+        # # Compute objective terms at t and t + h y
+        # # ----------------------------------------------------
+        # with torch.no_grad():
+        #     x_t, obj_t = self.optmodel(t, **instance_kwargs)
+        #     x_t, obj_t = x_t.detach(), obj_t.detach()
+        #     x_t_plus, obj_t_plus = self.optmodel(t_plus, **instance_kwargs)
+        #     x_t_plus, obj_t_plus = x_t_plus.detach(), obj_t_plus.detach()
+
+        # term1 = torch.sum(t_plus * x_t_plus, axis = 1)
+        # # print("term 1: ", term1.mean().item(), torch.sum(x_t_plus, axis = 1).mean().item())
+
+        # # Live term: gradients flow through t and through x_fn(t-hc) if x_fn supports autograd
+        # term2 = torch.sum(t * x_t, axis = 1)
+        # # print("term 2: ", term2.mean().item(), torch.sum(x_t_plus, axis = 1).mean().item())
+
+        # loss = (term1 - term2) / h
+
+        ##VG Edit to fix the 0/0 and catastrophic cancellations
+        #specify a tolerance that will be used to compare to zero for safety
+        if t.dtype == torch.float32:
+            TOL = 1e-8
+        else:
+            TOL = 1e-12
+
         with torch.no_grad():
             x_t, obj_t = self.optmodel(t, **instance_kwargs)
-            x_t, obj_t = x_t.detach(), obj_t.detach()
-            x_t_plus, obj_t_plus = self.optmodel(t_plus, **instance_kwargs)
-            x_t_plus, obj_t_plus = x_t_plus.detach(), obj_t_plus.detach()
+            x_t = x_t.detach()
 
-        term1 = torch.sum(t_plus * x_t_plus, axis = 1)
-        # print("term 1: ", term1.mean().item(), torch.sum(x_t_plus, axis = 1).mean().item())
+        # Compute the actual limit as h -> 0, always well-defined
+        dir_val = torch.sum(y * x_t, dim=1)  # <Y, z*(t)>
 
-        # Live term: gradients flow through t and through x_fn(t-hc) if x_fn supports autograd
-        term2 = torch.sum(t * x_t, axis = 1)
-        # print("term 2: ", term2.mean().item(), torch.sum(x_t_plus, axis = 1).mean().item())
+        # If h is (approximately) zero, avoid 0/0 and return the limit value
+        if abs(h) <= TOL:
+            # Anchor to pred_cost so backward() works but gradient stays zero.
+            loss = dir_val + 0.0 * t.sum()
+        else: #need to actually evaluate the finite difference
+            with torch.no_grad():
+                x_t_plus, obj_t_plus = self.optmodel(t_plus, **instance_kwargs)
+                x_t_plus = x_t_plus.detach()
 
-        loss = (term1 - term2) / h
+            # If the optimizer didn't change, avoid cancellations and return limit value again
+            # loss = <Y, z*(t)> exactly (for t_plus = t + hY).
+            if torch.max(torch.abs(x_t_plus - x_t)) <= TOL:
+                # Anchor to pred_cost so backward() works but gradient stays zero.
+                loss = dir_val + 0.0 * t.sum()
+            else: #actually compute the difference
+                term1 = torch.sum(t_plus * x_t_plus, dim=1)
+                term2 = torch.sum(t * x_t, dim=1)
+                loss = (term1 - term2) / h
+
         return _normalize_per_sample(loss)
 
 # -------------------------------------------------------------------------
@@ -1047,7 +1086,7 @@ class CILOLoss(nn.Module):
     pred_cost is computed externally and passed in. This loss does not use
     any frozen model; it relies on oracle evaluations at t and t + h y.
     """
-    DEFAULT_BETA_SCALE = 1.1
+    DEFAULT_BETA_SCALE = 0.1
 
     def __init__(self, optmodel, 
                     beta: float | None = None,
@@ -1104,7 +1143,11 @@ class CILOLoss(nn.Module):
             if obs_obj is None:
                 raise ValueError("CILOLoss requires obs_obj to infer beta when beta is None.")
             mean_obj = torch.mean(obs_obj.float()).item()
-            self.beta = self.DEFAULT_BETA_SCALE * mean_obj
+            offset = self.DEFAULT_BETA_SCALE * abs(mean_obj)
+            if self.is_minimization:
+                self.beta = mean_obj + offset
+            else:
+                self.beta = mean_obj - offset
 
         with torch.no_grad():
             h = CILO_lbda(t, y, self.optmodel, self.beta, kwargs=instance_kwargs)
@@ -1120,7 +1163,9 @@ class CILOLoss(nn.Module):
             x_t_plus, obj_t_plus = self.optmodel(t_plus, **instance_kwargs)
             x_t_plus, obj_t_plus = x_t_plus.detach(), obj_t_plus.detach()
 
-        term1 = torch.sum(t * x_t_plus, axis = 1)
+        #VG thinks this is an error.  changed.
+        term1 = torch.sum(t_plus * x_t_plus, axis = 1)
+        #term1 = torch.sum(t * x_t_plus, axis = 1)
         # print("term 1: ", term1.mean().item(), torch.sum(x_t_plus, axis = 1).mean().item())
 
         # Live term: gradients flow through t and through x_fn(t) if x_fn supports autograd
