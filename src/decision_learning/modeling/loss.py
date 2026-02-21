@@ -597,7 +597,7 @@ class FYFunc(Function):
         Backward pass for Fenchel-Young loss.
         """
         z_T, z_star = ctx.saved_tensors
-        grad = (z_T - z_star).to(grad_output.device)
+        grad = (z_star - z_T).to(grad_output.device)
         if not ctx.is_minimization:
             grad = -grad
 
