@@ -150,6 +150,7 @@ def _build_loss_inputs_for_reduction(loss_cls, obs_cost, batch, seed: int = 0):
             def _factory(reduction: str):
                 return loss_cls(
                     optmodel=_box_oracle_with_kwargs,
+                    h=0.1,
                     beta=0.1,
                     reduction=reduction,
                     is_minimization=True,
@@ -217,6 +218,7 @@ def test_pg_loss_adaptive_contract_backward_step():
 
     loss_fn = PGAdaptiveLoss(
         optmodel=_box_oracle_with_kwargs,
+        h=0.1,
         beta=0.1,
         reduction="mean",
         is_minimization=True,
@@ -323,6 +325,7 @@ def test_loss_standard_signature_acceptance(loss_cls):
         elif loss_cls is PGAdaptiveLoss:
             loss_fn = loss_cls(
                 optmodel=_box_oracle_with_kwargs,
+                h=0.1,
                 reduction="mean",
                 is_minimization=True,
             )
@@ -380,6 +383,7 @@ def test_pred_cost_grad_for_pg_family_losses(loss_cls):
     elif loss_cls is PGAdaptiveLoss:
         loss_fn = loss_cls(
             optmodel=_box_oracle_with_kwargs,
+            h=0.1,
             beta=0.1,
             reduction="mean",
             is_minimization=True,

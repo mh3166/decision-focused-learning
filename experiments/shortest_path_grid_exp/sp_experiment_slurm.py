@@ -202,7 +202,7 @@ def main():
         LossSpec(
             name='PGAdaptive',
             factory=PGAdaptiveLoss,
-            init_kwargs={"optmodel": optmodel, "is_minimization": True},
+            init_kwargs={"optmodel": optmodel, "h": 1.0, "is_minimization": True},
         ),
     ]
 

@@ -619,11 +619,15 @@ class PGAdaptiveLoss(nn.Module):
     DEFAULT_BETA_SCALE = 0.1
 
     def __init__(self, optmodel, 
+                    h: float,
                     beta: float | None = None,
                     reduction: str="mean", 
                     is_minimization: bool=True):
+        if h < 0:
+            raise ValueError("h must be positive")
         super().__init__()
         self.optmodel = optmodel
+        self.h = float(h)
         self.beta = beta
         self.reduction = reduction
         self.is_minimization = is_minimization
@@ -673,6 +677,7 @@ class PGAdaptiveLoss(nn.Module):
 
         with torch.no_grad():
             h = CILO_lbda(t, y, self.optmodel, self.beta, kwargs=instance_kwargs)
+            h = max(h, self.h) #clip from below
 
         t_plus = t + h * y
 
