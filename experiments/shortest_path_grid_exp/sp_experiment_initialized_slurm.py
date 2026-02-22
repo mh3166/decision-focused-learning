@@ -56,9 +56,9 @@ def _run_id() -> str:
     return run_id
 
 
-def find_baseline_checkpoint(sim: int, num_data: int, ep_type: str, trial: int, model0: str) -> str:
+def find_baseline_checkpoint(baseline_sim: int, num_data: int, ep_type: str, trial: int, model0: str) -> str:
     models_root = _repo_root() / "outputs" / "shortest_path_grid" / "baseline"
-    fname = f"sim{sim}_n{num_data}_ep{ep_type}_trial{trial}_{model0}_default.pt"
+    fname = f"sim{baseline_sim}_n{num_data}_ep{ep_type}_trial{trial}_{model0}_default.pt"
     baseline_run_id = os.getenv("BASELINE_RUN_ID")
     if not baseline_run_id:
         raise ValueError("BASELINE_RUN_ID is required to locate baseline models.")
@@ -186,7 +186,19 @@ def main():
     all_results = []
     all_summaries = []
 
-    model_path = find_baseline_checkpoint(sim, num_data, ep_type, trial, model0)
+    baseline_exp_arr = []
+    for n in n_arr:
+        for ep in ep_arr:
+            for t in range(trials):
+                baseline_exp_arr.append([n, ep, t])
+    try:
+        baseline_sim = baseline_exp_arr.index([num_data, ep_type, trial])
+    except ValueError as exc:
+        raise ValueError(
+            f"Could not resolve baseline sim for n={num_data}, ep_type={ep_type}, trial={trial}."
+        ) from exc
+
+    model_path = find_baseline_checkpoint(baseline_sim, num_data, ep_type, trial, model0)
     logging.info(f"Loading baseline model0={model0} from {model_path}")
     pred_model = load_pred_model(model_path)
 
