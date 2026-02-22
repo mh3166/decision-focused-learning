@@ -15,4 +15,6 @@ module load ver/2506
 module load gcc/14.3.0
 module load python/3.11.14
 
+# Go to repo root
+cd /scratch1/guptavis/decision-focused-learning/experiments/shortest_path_grid_exp
 python3 sp_experiment_slurm.py $SLURM_ARRAY_TASK_ID

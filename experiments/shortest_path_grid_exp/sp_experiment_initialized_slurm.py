@@ -1,3 +1,4 @@
+import glob
 import os
 import sys
 import time
@@ -13,14 +14,10 @@ from decision_learning.modeling.models import LinearRegression
 from decision_learning.modeling.pipeline import run_loss_experiments, expand_hyperparam_grid
 from decision_learning.modeling.loss_spec import LossSpec
 from decision_learning.modeling.loss import (
-    SPOPlusLoss,
-    MSELoss,
-    FYLoss,
-    CILOLoss,
     PGLoss,
+    PGDCALoss,
     PGAdaptiveLoss,
 )
-from decision_learning.modeling.smoothing import RandomizedSmoothingWrapper
 from decision_learning.benchmarks.shortest_path_grid.data import genData
 from decision_learning.benchmarks.shortest_path_grid.oracle import opt_oracle
 
@@ -30,7 +27,7 @@ logging.basicConfig(level=logging.INFO)
 
 
 def load_pred_model(model_path: str, model_class_map: dict | None = None, device: str = "cpu") -> torch.nn.Module:
-    """Load a saved prediction model payload produced by this script."""
+    """Load a saved prediction model payload produced by sp_experiment_slurm.py."""
     payload = torch.load(model_path, map_location=device)
     class_name = payload.get("model_class")
     model_kwargs = payload.get("model_kwargs", {})
@@ -47,33 +44,8 @@ def load_pred_model(model_path: str, model_class_map: dict | None = None, device
     return model
 
 
-def _format_hparams(hparams: dict) -> str:
-    if not hparams:
-        return "default"
-    parts = []
-    for k in sorted(hparams.keys()):
-        v = hparams[k]
-        v_str = str(v).replace(".", "p").replace("-", "m")
-        parts.append(f"{k}{v_str}")
-    return "_".join(parts)
-
-
-def _parse_loss_key(loss_key: str) -> tuple[str, dict]:
-    name, _, hparam_str = loss_key.partition("_")
-    if not hparam_str:
-        return name, {}
-    try:
-        import ast
-        hparams = ast.literal_eval(hparam_str)
-        if isinstance(hparams, dict):
-            return name, hparams
-    except Exception:
-        pass
-    return name, {"raw": hparam_str}
-
-
 def _repo_root() -> Path:
-    # experiments/shortest_path_grid_exp/sp_experiment_slurm.py -> repo root
+    # experiments/shortest_path_grid_exp/sp_experiment_initialized_slurm.py -> repo root
     return Path(__file__).resolve().parents[2]
 
 
@@ -84,9 +56,32 @@ def _run_id() -> str:
     return run_id
 
 
+def find_baseline_checkpoint(sim: int, num_data: int, ep_type: str, trial: int, model0: str) -> str:
+    models_root = _repo_root() / "outputs" / "shortest_path_grid" / "baseline"
+    fname = f"sim{sim}_n{num_data}_ep{ep_type}_trial{trial}_{model0}_default.pt"
+    baseline_run_id = os.getenv("BASELINE_RUN_ID")
+    if not baseline_run_id:
+        raise ValueError("BASELINE_RUN_ID is required to locate baseline models.")
+    pattern = str(models_root / baseline_run_id / fname)
+    matches = sorted(glob.glob(pattern))
+
+    if not matches:
+        raise FileNotFoundError(
+            "Missing baseline checkpoint. "
+            f"Expected path like {pattern}"
+        )
+    if len(matches) > 1:
+        raise FileNotFoundError(
+            "Multiple baseline checkpoints found. "
+            f"Expected a single match for {pattern}. "
+            f"Matches: {matches}"
+        )
+    return matches[0]
+
+
 def main():
     if len(sys.argv) < 2:
-        raise ValueError("Please provide sim index as sys.argv[1], e.g., python sp_experiment_slurm.py 0")
+        raise ValueError("Please provide sim index as sys.argv[1], e.g., python sp_experiment_initialized_slurm.py 0")
 
     # ----------------------- SETUP -----------------------
     torch.manual_seed(105)
@@ -99,19 +94,27 @@ def main():
     n_arr = [200, 400, 800, 1600]
     ep_arr = ['unif', 'normal']
     trials = 100
+    model0_arr = ['MSE', 'SPOPlus', 'FY']
 
     exp_arr = []
     for n in n_arr:
         for ep in ep_arr:
             for t in range(trials):
-                exp_arr.append([n, ep, t])
+                for model0 in model0_arr:
+                    exp_arr.append([n, ep, t, model0])
 
     if sim < 0 or sim >= len(exp_arr):
-        raise ValueError(f"sim index out of range: {sim}. Must be in [0, {len(exp_arr) - 1}].")
+        raise ValueError(
+            f"sim index out of range: {sim}. Must be in [0, {len(exp_arr) - 1}] "
+            f"for exp_arr size={len(exp_arr)}."
+        )
 
     exp = exp_arr[sim]
-    num_data, ep_type, trial = exp
-    logging.info(f"Running experiment sim={sim} with n={num_data}, epsilon type={ep_type}, trial={trial}")
+    num_data, ep_type, trial, model0 = exp
+    logging.info(
+        f"Running initialized experiment sim={sim}/{len(exp_arr) - 1} "
+        f"with n={num_data}, epsilon type={ep_type}, trial={trial}, model0={model0}"
+    )
 
     # shortest path example data generation configurations
     grid = (5, 5)
@@ -150,8 +153,10 @@ def main():
         planted_bad_pwl_params=planted_bad_pwl_params,
     )
 
+    # TEMP: override test set size to 200 for faster runs
+    temp_test_points = 200
     generated_data_test = genData(
-        num_data=10000,
+        num_data=temp_test_points,
         num_features=num_feat,
         grid=grid,
         deg=deg,
@@ -169,62 +174,59 @@ def main():
     train_instance_kwargs = {'size': np.zeros(len(generated_data['cost'])) + 5}
     test_instance_kwargs = {'size': np.zeros(len(generated_data_test['cost'])) + 5}
 
-    # prediction model
-    pred_model = LinearRegression(
-        input_dim=generated_data['feat'].shape[1],
-        output_dim=generated_data['cost'].shape[1],
-    )
+    # Loss hyperparameters
+    h_values = [num_data ** -.125, num_data ** -.25, num_data ** -.5, num_data ** -1]
 
-    # loss specs
+    # TEMP: override epochs to 20 for faster runs
+    temp_num_epochs = 20
+    train_config = {
+        'num_epochs': temp_num_epochs,
+        'dataloader_params': {'batch_size': 32, 'shuffle': True},
+    }
+
+    run_id = _run_id()
+
+    # ----------------------- RUN EXPERIMENTS -----------------------
+    all_results = []
+    all_summaries = []
+
+    model_path = find_baseline_checkpoint(sim, num_data, ep_type, trial, model0)
+    logging.info(f"Loading baseline model0={model0} from {model_path}")
+    pred_model = load_pred_model(model_path)
+
     loss_specs = [
-        LossSpec(name='SPOPlus', factory=SPOPlusLoss, init_kwargs={}, aux={"optmodel": optmodel, "is_minimization": True}),
-        LossSpec(name='FY', factory=FYLoss, init_kwargs={}, aux={"optmodel": optmodel, "is_minimization": True}),
-        LossSpec(
-            name='FY_Smooth',
-            factory=RandomizedSmoothingWrapper,
-            init_kwargs={
-                "base_loss": FYLoss(optmodel=optmodel, is_minimization=True),
-                "sigma": 0.1,
-                "s": 10,
-                "control_variate": True,
-            },
-        ),
-        LossSpec(name='MSE', factory=MSELoss, init_kwargs={}),
-        LossSpec(
-            name='DBB',
-            factory=PGLoss,
-            init_kwargs={"h": 15, "finite_diff_type": "F"},
-            aux={"optmodel": optmodel, "is_minimization": True},
-        ),
         LossSpec(
             name='PG',
             factory=PGLoss,
             init_kwargs={},
             aux={"optmodel": optmodel, "is_minimization": True},
             hyper_grid=expand_hyperparam_grid({
-                "h": [num_data ** -.125, num_data ** -.25, num_data ** -.5, num_data ** -1],
+                "h": h_values,
                 "finite_diff_type": ["B", "C"],
                 "scale_by_norm": [False, True],
             }),
         ),
         LossSpec(
-            name='CILO',
-            factory=CILOLoss,
-            init_kwargs={"optmodel": optmodel, "is_minimization": True},
+            name='PGDCA',
+            factory=PGDCALoss,
+            init_kwargs={},
+            aux={"optmodel": optmodel, "is_minimization": True},
+            hyper_grid=expand_hyperparam_grid({
+                "h": h_values,
+                "update_every": [10, 25, 100],
+            }),
         ),
         LossSpec(
             name='PGAdaptive',
             factory=PGAdaptiveLoss,
-            init_kwargs={"optmodel": optmodel, "h": 1.0, "is_minimization": True},
+            init_kwargs={"optmodel": optmodel, "is_minimization": True},
+            hyper_grid=expand_hyperparam_grid({
+                "h": h_values,
+            }),
         ),
     ]
 
-    train_config = {
-        'num_epochs': 100,
-        'dataloader_params': {'batch_size': 32, 'shuffle': True},
-    }
-
-    results_df, trained_models = run_loss_experiments(
+    results_df, _ = run_loss_experiments(
         X_train=generated_data['feat'],
         obs_cost_train=generated_data['cost'],
         X_test=generated_data_test['feat'],
@@ -236,57 +238,19 @@ def main():
         train_val_split_params={'test_size': 200, 'random_state': 42},
         loss_specs=loss_specs,
         train_config=train_config,
-        save_models=True,
+        save_models=False,
         cond_exp_cost_train=generated_data['cond_exp_cost'],
         cond_exp_cost_test=generated_data_test['cond_exp_cost'],
     )
 
-    # ----------------------- SAVE MODELS -----------------------
-    run_id = _run_id()
-    repo_root = _repo_root()
-    models_dir = os.path.join(repo_root, "outputs", "shortest_path_grid", "baseline", str(run_id))
-    os.makedirs(models_dir, exist_ok=True)
-
-    for loss_key, model in trained_models.items():
-        loss_name, hparams = _parse_loss_key(loss_key)
-        hparam_tag = _format_hparams(hparams)
-        fname = f"sim{sim}_n{num_data}_ep{ep_type}_trial{trial}_{loss_name}_{hparam_tag}.pt"
-        fpath = os.path.join(models_dir, fname)
-
-        payload = {
-            "model_state_dict": model.state_dict(),
-            "model_class": model.__class__.__name__,
-            "model_kwargs": {
-                "input_dim": generated_data['feat'].shape[1],
-                "output_dim": generated_data['cost'].shape[1],
-            },
-            "loss_name": loss_name,
-            "hyperparameters": hparams,
-            "sim": sim,
-            "n": num_data,
-            "ep_type": ep_type,
-            "trial": trial,
-            "run_id": run_id,
-        }
-        torch.save(payload, fpath)
-
-    # ----------------------- SAVE RESULTS -----------------------
     results_df['sim'] = sim
     results_df['n'] = num_data
     results_df['ep_type'] = ep_type
     results_df['trial'] = trial
+    results_df['model0'] = model0
 
-    results_run_dir = os.path.join(repo_root, "outputs", "shortest_path_grid", "baseline", str(run_id))
-    os.makedirs(results_run_dir, exist_ok=True)
-    results_run_path = os.path.join(
-        results_run_dir,
-        f"sim{sim}_n{num_data}_ep{ep_type}_trial{trial}_results.csv",
-    )
-    results_df.to_csv(results_run_path, index=False)
-    logging.info(f"Wrote results to {results_run_path}")
-
-    # Summary: best-val epoch test regret and last-epoch test regret per loss/hparams
-    group_cols = ['loss_name', 'hyperparameters', 'sim', 'n', 'ep_type', 'trial']
+        # Summary: best-val epoch test regret and last-epoch test regret per loss/hparams
+    group_cols = ['loss_name', 'hyperparameters', 'sim', 'n', 'ep_type', 'trial', 'model0']
     summary_rows = []
     for _, group in results_df.groupby(group_cols, dropna=False):
         group_sorted = group.sort_values('epoch')
@@ -300,20 +264,34 @@ def main():
             'n': num_data,
             'ep_type': ep_type,
             'trial': trial,
+            'model0': model0,
             'best_val_epoch': int(best_row['epoch']),
             'test_regret_at_best_val': best_row['test_regret'],
             'test_regret_last_epoch': last_row['test_regret'],
         })
 
     summary_df = pd.DataFrame(summary_rows)
-    summary_run_dir = os.path.join(repo_root, "outputs", "shortest_path_grid", "baseline", str(run_id))
+
+    repo_root = _repo_root()
+    results_run_dir = os.path.join(repo_root, "outputs", "shortest_path_grid", "initialized", str(run_id))
+    os.makedirs(results_run_dir, exist_ok=True)
+    results_run_path = os.path.join(
+        results_run_dir,
+        f"sim{sim}_n{num_data}_ep{ep_type}_trial{trial}_model0{model0}_results.csv",
+    )
+    results_df.to_csv(results_run_path, index=False)
+    logging.info(f"Wrote results to {results_run_path}")
+
+    summary_run_dir = os.path.join(repo_root, "outputs", "shortest_path_grid", "initialized", str(run_id))
     os.makedirs(summary_run_dir, exist_ok=True)
     summary_run_path = os.path.join(
         summary_run_dir,
-        f"sim{sim}_n{num_data}_ep{ep_type}_trial{trial}_summary.csv",
+        f"sim{sim}_n{num_data}_ep{ep_type}_trial{trial}_model0{model0}_summary.csv",
     )
     summary_df.to_csv(summary_run_path, index=False)
     logging.info(f"Wrote summary to {summary_run_path}")
+
+    logging.info(f"Completed initialized run for sim={sim}. Rows: results={len(results_df)}, summary={len(summary_df)}")
 
 
 if __name__ == "__main__":
