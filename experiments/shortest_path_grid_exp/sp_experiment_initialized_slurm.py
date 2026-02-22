@@ -153,10 +153,8 @@ def main():
         planted_bad_pwl_params=planted_bad_pwl_params,
     )
 
-    # TEMP: override test set size to 200 for faster runs
-    temp_test_points = 200
     generated_data_test = genData(
-        num_data=temp_test_points,
+        num_data=10000,
         num_features=num_feat,
         grid=grid,
         deg=deg,
@@ -177,10 +175,8 @@ def main():
     # Loss hyperparameters
     h_values = [num_data ** -.125, num_data ** -.25, num_data ** -.5, num_data ** -1]
 
-    # TEMP: override epochs to 20 for faster runs
-    temp_num_epochs = 20
     train_config = {
-        'num_epochs': temp_num_epochs,
+        'num_epochs': 100,
         'dataloader_params': {'batch_size': 32, 'shuffle': True},
     }
 
