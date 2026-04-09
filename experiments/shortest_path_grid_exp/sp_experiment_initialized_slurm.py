@@ -173,7 +173,7 @@ def main():
     test_instance_kwargs = {'size': np.zeros(len(generated_data_test['cost'])) + 5}
 
     # Loss hyperparameters
-    h_values = [num_data ** -.125, num_data ** -.25, num_data ** -.5, num_data ** -1]
+    h_values = [num_data ** -.125, num_data ** -.25, num_data ** -.5, num_data ** -1, num_data ** -2]
 
     train_config = {
         'num_epochs': 100,
@@ -211,7 +211,6 @@ def main():
             hyper_grid=expand_hyperparam_grid({
                 "h": h_values,
                 "finite_diff_type": ["B", "C"],
-                "scale_by_norm": [False, True],
             }),
         ),
         LossSpec(
@@ -224,14 +223,14 @@ def main():
                 "update_every": [10, 25, 100],
             }),
         ),
-        LossSpec(
-            name='PGAdaptive',
-            factory=PGAdaptiveLoss,
-            init_kwargs={"optmodel": optmodel, "is_minimization": True},
-            hyper_grid=expand_hyperparam_grid({
-                "h": h_values,
-            }),
-        ),
+        # LossSpec(
+        #     name='PGAdaptive',
+        #     factory=PGAdaptiveLoss,
+        #     init_kwargs={"optmodel": optmodel, "is_minimization": True},
+        #     hyper_grid=expand_hyperparam_grid({
+        #         "h": h_values,
+        #     }),
+        # ),
     ]
 
     results_df, _ = run_loss_experiments(

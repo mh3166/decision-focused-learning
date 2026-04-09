@@ -18,6 +18,7 @@ from decision_learning.modeling.loss import (
     FYLoss,
     CILOLoss,
     PGLoss,
+    PGDCALoss,
     PGAdaptiveLoss,
 )
 from decision_learning.modeling.smoothing import RandomizedSmoothingWrapper
@@ -177,50 +178,58 @@ def main():
 
     # loss specs
     loss_specs = [
-        # TEMPORARY: Commented out all losses except PGAdaptive for focused runs.
-        # LossSpec(name='SPOPlus', factory=SPOPlusLoss, init_kwargs={}, aux={"optmodel": optmodel, "is_minimization": True}),
-        # LossSpec(name='FY', factory=FYLoss, init_kwargs={}, aux={"optmodel": optmodel, "is_minimization": True}),
-        # LossSpec(
-        #     name='FY_Smooth',
-        #     factory=RandomizedSmoothingWrapper,
-        #     init_kwargs={
-        #         "base_loss": FYLoss(optmodel=optmodel, is_minimization=True),
-        #         "sigma": 0.1,
-        #         "s": 10,
-        #         "control_variate": True,
-        #     },
-        # ),
-        # LossSpec(name='MSE', factory=MSELoss, init_kwargs={}),
-        # LossSpec(
-        #     name='DBB',
-        #     factory=PGLoss,
-        #     init_kwargs={"h": 15, "finite_diff_type": "F"},
-        #     aux={"optmodel": optmodel, "is_minimization": True},
-        # ),
-        # LossSpec(
-        #     name='PG',
-        #     factory=PGLoss,
-        #     init_kwargs={},
-        #     aux={"optmodel": optmodel, "is_minimization": True},
-        #     hyper_grid=expand_hyperparam_grid({
-        #         "h": [num_data ** -.125, num_data ** -.25, num_data ** -.5, num_data ** -1],
-        #         "finite_diff_type": ["B", "C"],
-        #         "scale_by_norm": [False, True],
-        #     }),
-        # ),
-        # LossSpec(
-        #     name='CILO',
-        #     factory=CILOLoss,
-        #     init_kwargs={"optmodel": optmodel, "is_minimization": True},
-        # ),
+        LossSpec(name='SPOPlus', factory=SPOPlusLoss, init_kwargs={}, aux={"optmodel": optmodel, "is_minimization": True}),
+        LossSpec(name='FY', factory=FYLoss, init_kwargs={}, aux={"optmodel": optmodel, "is_minimization": True}),
         LossSpec(
-            name='PGAdaptive',
-            factory=PGAdaptiveLoss,
-            init_kwargs={"optmodel": optmodel, "is_minimization": True},
+            name='FY_Smooth',
+            factory=RandomizedSmoothingWrapper,
+            init_kwargs={
+                "base_loss": FYLoss(optmodel=optmodel, is_minimization=True),
+                "sigma": 0.1,
+                "s": 10,
+                "control_variate": True,
+            },
+        ),
+        LossSpec(name='MSE', factory=MSELoss, init_kwargs={}),
+        LossSpec(
+            name='DBB',
+            factory=PGLoss,
+            init_kwargs={"h": 15, "finite_diff_type": "F"},
+            aux={"optmodel": optmodel, "is_minimization": True},
+        ),
+        LossSpec(
+            name='PG',
+            factory=PGLoss,
+            init_kwargs={},
+            aux={"optmodel": optmodel, "is_minimization": True},
             hyper_grid=expand_hyperparam_grid({
-                "h": [num_data ** -.125, num_data ** -.25, num_data ** -.5, num_data ** -1],
+                "h": [num_data ** -.125, num_data ** -.25, num_data ** -.5, num_data ** -1, num_data ** -2],
+                "finite_diff_type": ["B", "C"],
             }),
         ),
+        LossSpec(
+            name='PGDCA',
+            factory=PGDCALoss,
+            init_kwargs={},
+            aux={"optmodel": optmodel, "is_minimization": True},
+            hyper_grid=expand_hyperparam_grid({
+                "h": [num_data ** -.125, num_data ** -.25, num_data ** -.5, num_data ** -1, num_data ** -2],
+                "update_every": [10, 25, 100],
+            }),
+        ),
+        LossSpec(
+            name='CILO',
+            factory=CILOLoss,
+            init_kwargs={"optmodel": optmodel, "is_minimization": True},
+        ),
+        # LossSpec(
+        #     name='PGAdaptive',
+        #     factory=PGAdaptiveLoss,
+        #     init_kwargs={"optmodel": optmodel, "is_minimization": True},
+        #     hyper_grid=expand_hyperparam_grid({
+        #         "h": [num_data ** -.125, num_data ** -.25, num_data ** -.5, num_data ** -1, num_data ** -2],
+        #     }),
+        # ),
     ]
 
     train_config = {
