@@ -15,6 +15,21 @@ from decision_learning.modeling.models import LinearRegression
 from decision_learning.modeling.train import train, calc_test_regret
 ```
 
+# Optional portfolio benchmark requirements
+The base `requirements.txt` intentionally does not install Gurobi. Users can install and run the
+non-portfolio benchmarks without `gurobipy` or a Gurobi license.
+
+The Markowitz portfolio benchmark and experiments use a Gurobi oracle. To run them, install the
+optional portfolio requirements and make sure a valid Gurobi license is available:
+
+```bash
+pip install -r requirements-portfolio.txt
+```
+
+If `gurobipy` is missing, importing the portfolio oracle module still succeeds, but calling the
+portfolio oracle raises an `ImportError`. If `gurobipy` is installed without a valid license, Gurobi
+will raise a license error when the oracle solves a model.
+
 # Randomized smoothing wrapper
 Use `RandomizedSmoothingWrapper` to obtain a perturbation-smoothed version of any loss that implements the standard `per_sample`/`forward` interface.
 This replaces the old `SPOPlusLoss(smoothing=...)` behavior.
