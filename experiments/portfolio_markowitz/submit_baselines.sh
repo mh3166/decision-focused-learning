@@ -12,6 +12,7 @@
 #SBATCH --job-name=pg_portfolio_baselines
 #SBATCH --mail-user=guptavis@usc.edu
 
+set -euo pipefail
 
 module purge
 module load ver/2506
@@ -20,8 +21,8 @@ module load gurobi/11.0.2
 module load gcc/14.3.0
 
 module load python/3.11.14
-pip3 install gurobipy==11.0.2
+python3 -c "import gurobipy; print('gurobipy', gurobipy.gurobi.version())"
 
 # Go to experiment directory
 cd /scratch1/guptavis/decision-focused-learning/experiments/portfolio_markowitz
-python3 train_baselines.py $SLURM_ARRAY_TASK_ID
+python3 train_baselines.py "$SLURM_ARRAY_TASK_ID"

@@ -13,10 +13,16 @@
 #SBATCH --job-name=pg_portfolio_warmstart
 #SBATCH --mail-user=guptavis@usc.edu
 
+set -euo pipefail
+
 module purge
 module load ver/2506
+
+module load gurobi/11.0.2
 module load gcc/14.3.0
+
 module load python/3.11.14
+python3 -c "import gurobipy; print('gurobipy', gurobipy.gurobi.version())"
 
 # Go to experiment directory
 cd /scratch1/guptavis/decision-focused-learning/experiments/portfolio_markowitz
@@ -25,4 +31,4 @@ cd /scratch1/guptavis/decision-focused-learning/experiments/portfolio_markowitz
 # from the train_baselines.py baseline run.
 : "${BASELINE_RUN_ID:?Please set BASELINE_RUN_ID to the portfolio baseline run id.}"
 
-python3 train_warmstart.py $SLURM_ARRAY_TASK_ID
+python3 train_warmstart.py "$SLURM_ARRAY_TASK_ID"
