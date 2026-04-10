@@ -15,8 +15,12 @@
 
 module purge
 module load ver/2506
+
+module load gurobi/11.0.2
 module load gcc/14.3.0
+
 module load python/3.11.14
+pip3 install gurobipy==11.0.2
 
 # Go to experiment directory
 cd /scratch1/guptavis/decision-focused-learning/experiments/portfolio_markowitz
