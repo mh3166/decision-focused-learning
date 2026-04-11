@@ -27,8 +27,8 @@ python3 -c "import gurobipy; print('gurobipy', gurobipy.gurobi.version())"
 # Go to experiment directory
 cd /scratch1/guptavis/decision-focused-learning/experiments/portfolio_markowitz
 
-# Required by train_warmstart.py. Set this to the SLURM_ARRAY_JOB_ID
-# from the train_baselines.py baseline run.
-: "${BASELINE_RUN_ID:?Please set BASELINE_RUN_ID to the portfolio baseline run id.}"
+# Required by train_warmstart.py. Update this to the SLURM_ARRAY_JOB_ID
+# from the train_baselines.py baseline run before submitting.
+export BASELINE_RUN_ID=REPLACE_WITH_BASELINE_RUN_ID
 
 python3 train_warmstart.py "$SLURM_ARRAY_TASK_ID"

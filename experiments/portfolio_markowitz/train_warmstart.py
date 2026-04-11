@@ -26,7 +26,6 @@ from decision_learning.modeling.smoothing import RandomizedSmoothingWrapper
 from decision_learning.utils import handle_solver
 from train_baselines import (
     _load_portfolio_support_and_cov,
-    _parse_int_list_env,
     _repo_root,
     load_pred_model,
 )
@@ -37,7 +36,10 @@ logging.basicConfig(level=logging.INFO)
 
 
 def _run_id() -> str:
-    return os.getenv("SLURM_ARRAY_JOB_ID") or "local"
+    run_id = os.getenv("SLURM_ARRAY_JOB_ID")
+    if not run_id:
+        raise ValueError("SLURM_ARRAY_JOB_ID is required for run_id.")
+    return run_id
 
 
 def _baseline_run_id() -> str:
@@ -121,10 +123,8 @@ def main():
     indices_arr = torch.randperm(100000)
     indices_arr_test = torch.randperm(100000)
 
-    n_arr = _parse_int_list_env("PORTFOLIO_N_ARR", [200, 400, 800, 1600])
-    trials = int(os.getenv("PORTFOLIO_TRIALS", "50"))
-    if trials <= 0:
-        raise ValueError(f"PORTFOLIO_TRIALS must be positive, got {trials}.")
+    n_arr = [200, 400, 800, 1600]
+    trials = 50
 
     model0_arr = ["MSE", "SPOPlus", "FY"]
     baseline_exp_arr = []
@@ -150,14 +150,12 @@ def main():
     except ValueError as exc:
         raise ValueError(f"Could not resolve baseline sim for n={num_data}, trial={trial}.") from exc
 
-    epochs = int(os.getenv("PORTFOLIO_EPOCHS", "100"))
-    val_size = int(os.getenv("PORTFOLIO_VAL_SIZE", "200"))
-    test_size = int(os.getenv("PORTFOLIO_TEST_SIZE", "2000"))
-    batch_size = int(os.getenv("PORTFOLIO_BATCH_SIZE", "32"))
-    vol_scaling = float(os.getenv("PORTFOLIO_VOL_SCALING", "0.5"))
-    gamma = float(os.getenv("PORTFOLIO_GAMMA", "0.1"))
-    if epochs <= 0 or val_size <= 0 or test_size <= 0 or batch_size <= 0:
-        raise ValueError("PORTFOLIO_EPOCHS, PORTFOLIO_VAL_SIZE, PORTFOLIO_TEST_SIZE, and PORTFOLIO_BATCH_SIZE must be positive.")
+    epochs = 100
+    val_size = 200
+    test_size = 2000
+    batch_size = 32
+    vol_scaling = 0.5
+    gamma = 0.1
 
     logging.info(
         f"Running warm-start portfolio experiment sim={sim}/{len(exp_arr) - 1} "

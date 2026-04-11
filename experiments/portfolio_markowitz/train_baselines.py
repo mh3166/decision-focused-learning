@@ -87,21 +87,14 @@ def _repo_root() -> Path:
 
 
 def _run_id() -> str:
-    return os.getenv("SLURM_ARRAY_JOB_ID") or "local"
+    run_id = os.getenv("SLURM_ARRAY_JOB_ID")
+    if not run_id:
+        raise ValueError("SLURM_ARRAY_JOB_ID is required for run_id.")
+    return run_id
 
 
 def _portfolio_data_dir() -> Path:
     return _repo_root() / "src" / "decision_learning" / "benchmarks" / "portfolio_markowitz"
-
-
-def _parse_int_list_env(name: str, default: list[int]) -> list[int]:
-    raw = os.getenv(name)
-    if not raw:
-        return default
-    values = [int(item.strip()) for item in raw.split(",") if item.strip()]
-    if not values:
-        raise ValueError(f"{name} must contain at least one integer when set.")
-    return values
 
 
 def _load_portfolio_support_and_cov() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -115,71 +108,84 @@ def _load_portfolio_support_and_cov() -> tuple[np.ndarray, np.ndarray, np.ndarra
 
 
 def _make_loss_specs(optmodel, num_data: int) -> list[LossSpec]:
-    neurips_pg_h_grid = [num_data ** -0.125, num_data ** -0.25, num_data ** -0.5, num_data ** -1]
-    sp_extra_h_grid = neurips_pg_h_grid + [num_data ** -2]
+    # Original full baseline grid kept here for easy restoration after the
+    # temporary SLURM smoke test is complete.
+    #
+    # neurips_pg_h_grid = [num_data ** -0.125, num_data ** -0.25, num_data ** -0.5, num_data ** -1]
+    # sp_extra_h_grid = neurips_pg_h_grid + [num_data ** -2]
+    # return [
+    #     LossSpec(name="SPOPlus", factory=SPOPlusLoss, init_kwargs={}, aux={"optmodel": optmodel, "is_minimization": True}),
+    #     LossSpec(name="FY", factory=FYLoss, init_kwargs={}, aux={"optmodel": optmodel, "is_minimization": True}),
+    #     LossSpec(
+    #         name="FY_Smooth",
+    #         factory=RandomizedSmoothingWrapper,
+    #         init_kwargs={
+    #             "base_loss": FYLoss(optmodel=optmodel, is_minimization=True),
+    #             "sigma": 0.1,
+    #             "s": 10,
+    #             "control_variate": True,
+    #         },
+    #     ),
+    #     LossSpec(
+    #         name="DecisionRegret_Smooth",
+    #         factory=RandomizedSmoothingWrapper,
+    #         init_kwargs={
+    #             "base_loss": DecisionRegretLoss(optmodel=optmodel, is_minimization=True),
+    #         },
+    #         hyper_grid=expand_hyperparam_grid({
+    #             "sigma": [0.1],
+    #             "s": [10],
+    #             "control_variate": [True],
+    #         }),
+    #     ),
+    #     LossSpec(name="MSE", factory=MSELoss, init_kwargs={}),
+    #     LossSpec(
+    #         name="DBB",
+    #         factory=PGLoss,
+    #         init_kwargs={"h": 15, "finite_diff_type": "F"},
+    #         aux={"optmodel": optmodel, "is_minimization": True},
+    #     ),
+    #     LossSpec(
+    #         name="PG",
+    #         factory=PGLoss,
+    #         init_kwargs={},
+    #         aux={"optmodel": optmodel, "is_minimization": True},
+    #         hyper_grid=expand_hyperparam_grid({
+    #             "h": neurips_pg_h_grid,
+    #             "finite_diff_type": ["B", "C"],
+    #         }),
+    #     ),
+    #     LossSpec(
+    #         name="PGDCA",
+    #         factory=PGDCALoss,
+    #         init_kwargs={},
+    #         aux={"optmodel": optmodel, "is_minimization": True},
+    #         hyper_grid=expand_hyperparam_grid({
+    #             "h": sp_extra_h_grid,
+    #             "update_every": [10, 25, 100],
+    #         }),
+    #     ),
+    #     LossSpec(
+    #         name="CILO",
+    #         factory=CILOLoss,
+    #         init_kwargs={"optmodel": optmodel, "is_minimization": True},
+    #     ),
+    #     # LossSpec(
+    #     #     name="PGAdaptive",
+    #     #     factory=PGAdaptiveLoss,
+    #     #     init_kwargs={"optmodel": optmodel, "is_minimization": True},
+    #     #     hyper_grid=expand_hyperparam_grid({"h": sp_extra_h_grid}),
+    #     # ),
+    # ]
+
+    # TEMPORARY DEBUG CONFIG:
+    # Keep this baseline run short so a SLURM smoke test reaches output files
+    # quickly. This intentionally uses a minimal loss set and no hyperparameter
+    # sweeps. Restore the commented block above for full experiments.
     return [
-        LossSpec(name="SPOPlus", factory=SPOPlusLoss, init_kwargs={}, aux={"optmodel": optmodel, "is_minimization": True}),
-        LossSpec(name="FY", factory=FYLoss, init_kwargs={}, aux={"optmodel": optmodel, "is_minimization": True}),
-        LossSpec(
-            name="FY_Smooth",
-            factory=RandomizedSmoothingWrapper,
-            init_kwargs={
-                "base_loss": FYLoss(optmodel=optmodel, is_minimization=True),
-                "sigma": 0.1,
-                "s": 10,
-                "control_variate": True,
-            },
-        ),
-        LossSpec(
-            name="DecisionRegret_Smooth",
-            factory=RandomizedSmoothingWrapper,
-            init_kwargs={
-                "base_loss": DecisionRegretLoss(optmodel=optmodel, is_minimization=True),
-            },
-            hyper_grid=expand_hyperparam_grid({
-                "sigma": [0.1],
-                "s": [10],
-                "control_variate": [True],
-            }),
-        ),
         LossSpec(name="MSE", factory=MSELoss, init_kwargs={}),
-        LossSpec(
-            name="DBB",
-            factory=PGLoss,
-            init_kwargs={"h": 15, "finite_diff_type": "F"},
-            aux={"optmodel": optmodel, "is_minimization": True},
-        ),
-        LossSpec(
-            name="PG",
-            factory=PGLoss,
-            init_kwargs={},
-            aux={"optmodel": optmodel, "is_minimization": True},
-            hyper_grid=expand_hyperparam_grid({
-                "h": neurips_pg_h_grid,
-                "finite_diff_type": ["B", "C"],
-            }),
-        ),
-        LossSpec(
-            name="PGDCA",
-            factory=PGDCALoss,
-            init_kwargs={},
-            aux={"optmodel": optmodel, "is_minimization": True},
-            hyper_grid=expand_hyperparam_grid({
-                "h": sp_extra_h_grid,
-                "update_every": [10, 25, 100],
-            }),
-        ),
-        LossSpec(
-            name="CILO",
-            factory=CILOLoss,
-            init_kwargs={"optmodel": optmodel, "is_minimization": True},
-        ),
-        # LossSpec(
-        #     name="PGAdaptive",
-        #     factory=PGAdaptiveLoss,
-        #     init_kwargs={"optmodel": optmodel, "is_minimization": True},
-        #     hyper_grid=expand_hyperparam_grid({"h": sp_extra_h_grid}),
-        # ),
+        LossSpec(name="FY", factory=FYLoss, init_kwargs={}, aux={"optmodel": optmodel, "is_minimization": True}),
+        LossSpec(name="SPOPlus", factory=SPOPlusLoss, init_kwargs={}, aux={"optmodel": optmodel, "is_minimization": True}),
     ]
 
 
@@ -223,10 +229,8 @@ def main():
     indices_arr_test = torch.randperm(100000)
 
     sim = int(sys.argv[1])
-    n_arr = _parse_int_list_env("PORTFOLIO_N_ARR", [200, 400, 800, 1600])
-    trials = int(os.getenv("PORTFOLIO_TRIALS", "50"))
-    if trials <= 0:
-        raise ValueError(f"PORTFOLIO_TRIALS must be positive, got {trials}.")
+    n_arr = [200, 400, 800, 1600]
+    trials = 50
 
     exp_arr = []
     for n in n_arr:
@@ -237,15 +241,19 @@ def main():
         raise ValueError(f"sim index out of range: {sim}. Must be in [0, {len(exp_arr) - 1}].")
 
     num_data, trial = exp_arr[sim]
-    epochs = int(os.getenv("PORTFOLIO_EPOCHS", "100"))
-    val_size = int(os.getenv("PORTFOLIO_VAL_SIZE", "200"))
-    test_size = int(os.getenv("PORTFOLIO_TEST_SIZE", "2000"))
-    batch_size = int(os.getenv("PORTFOLIO_BATCH_SIZE", "32"))
-    vol_scaling = float(os.getenv("PORTFOLIO_VOL_SCALING", "0.5"))
-    gamma = float(os.getenv("PORTFOLIO_GAMMA", "0.1"))
-    save_models = os.getenv("PORTFOLIO_SAVE_MODELS", "1") != "0"
-    if epochs <= 0 or val_size <= 0 or test_size <= 0 or batch_size <= 0:
-        raise ValueError("PORTFOLIO_EPOCHS, PORTFOLIO_VAL_SIZE, PORTFOLIO_TEST_SIZE, and PORTFOLIO_BATCH_SIZE must be positive.")
+    # Original full-run setting kept for restoration after the temporary SLURM
+    # smoke test:
+    # epochs = 100
+    #
+    # TEMPORARY DEBUG CONFIG:
+    # Use a small epoch count so a sample SLURM run finishes quickly.
+    epochs = 5
+    val_size = 200
+    test_size = 2000
+    batch_size = 32
+    vol_scaling = 0.5
+    gamma = 0.1
+    save_models = True
     logging.info(f"Running portfolio experiment sim={sim} with n={num_data}, trial={trial}")
 
     dat_Y, dat_X, Sigma = _load_portfolio_support_and_cov()
