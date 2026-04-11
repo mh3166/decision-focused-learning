@@ -222,38 +222,21 @@ def main():
     indices_arr_test = torch.randperm(100000)
 
     sim = int(sys.argv[1])
-    # Original full baseline sweep kept here for easy restoration:
-    # n_arr = [200, 400, 800, 1600]
-    # trials = 50
-    #
-    # exp_arr = []
-    # for n in n_arr:
-    #     for t in range(trials):
-    #         exp_arr.append([n, t])
-    #
-    # if sim < 0 or sim >= len(exp_arr):
-    #     raise ValueError(f"sim index out of range: {sim}. Must be in [0, {len(exp_arr) - 1}].")
-    #
-    # num_data, trial = exp_arr[sim]
+    n_arr = [200, 400, 800, 1600]
+    trials = 50
 
-    # TEMPORARY SINGLE-CONFIG RERUN:
-    # Restrict the portfolio baseline to the previously failing case so we can
-    # do a focused follow-up run on SLURM.
-    if sim != 13:
-        raise ValueError("Temporary portfolio baseline rerun only supports sim=13.")
-    num_data, trial = 200, 13
-    # Original full-run settings kept here for easy restoration after the
-    # temporary runtime-reduction test:
-    # epochs = 100
-    # val_size = 200
-    # test_size = 2000
-    #
-    # TEMPORARY DEBUG CONFIG:
-    # Keep the full loss set, but reduce epochs and validation/test sizes so
-    # the focused rerun of sim=13 completes faster on SLURM.
-    epochs = 5
-    val_size = 50
-    test_size = 100
+    exp_arr = []
+    for n in n_arr:
+        for t in range(trials):
+            exp_arr.append([n, t])
+
+    if sim < 0 or sim >= len(exp_arr):
+        raise ValueError(f"sim index out of range: {sim}. Must be in [0, {len(exp_arr) - 1}].")
+
+    num_data, trial = exp_arr[sim]
+    epochs = 100
+    val_size = 200
+    test_size = 2000
     batch_size = 32
     vol_scaling = 0.5
     gamma = 0.1

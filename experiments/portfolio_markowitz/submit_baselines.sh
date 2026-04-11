@@ -3,13 +3,7 @@
 # Submit the baseline portfolio run first. It writes model checkpoints that
 # submit_warmstart.sh consumes through BASELINE_RUN_ID.
 
-# Original full baseline array:
 #SBATCH --array=0-199
-#
-# TEMPORARY SINGLE-CONFIG RERUN:
-# Restrict this batch submission to sim=13, which corresponds to n=200,
-# trial=13 in the original baseline enumeration.
-#SBATCH --array=13-13
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
 #SBATCH --mem-per-cpu=4GB
