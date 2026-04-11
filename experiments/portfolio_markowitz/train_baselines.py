@@ -67,9 +67,12 @@ def _format_hparams(hparams: dict) -> str:
 
 
 def _parse_loss_key(loss_key: str) -> tuple[str, dict]:
-    name, _, hparam_str = loss_key.rpartition("_")
-    if not hparam_str:
-        return name, {}
+    marker = "_{"
+    idx = loss_key.find(marker)
+    if idx == -1:
+        return loss_key, {}
+    name = loss_key[:idx]
+    hparam_str = loss_key[idx + 1:]
     try:
         import ast
 
@@ -239,9 +242,18 @@ def main():
     if sim != 13:
         raise ValueError("Temporary portfolio baseline rerun only supports sim=13.")
     num_data, trial = 200, 13
-    epochs = 100
-    val_size = 200
-    test_size = 2000
+    # Original full-run settings kept here for easy restoration after the
+    # temporary runtime-reduction test:
+    # epochs = 100
+    # val_size = 200
+    # test_size = 2000
+    #
+    # TEMPORARY DEBUG CONFIG:
+    # Keep the full loss set, but reduce epochs and validation/test sizes so
+    # the focused rerun of sim=13 completes faster on SLURM.
+    epochs = 5
+    val_size = 50
+    test_size = 100
     batch_size = 32
     vol_scaling = 0.5
     gamma = 0.1
@@ -327,8 +339,6 @@ def main():
     results_df["trial"] = trial
     results_df["data_seed"] = data_seed
     results_df["split_seed"] = split_seed
-    results_df["val_metric_cost"] = "observed"
-    results_df["test_regret_cost"] = "conditional_expectation"
 
     results_run_path = results_run_dir / f"sim{sim}_n{num_data}_trial{trial}_results.csv"
     results_df.to_csv(results_run_path, index=False)

@@ -61,9 +61,12 @@ def _format_hparams(hparams: dict) -> str:
 
 
 def _parse_loss_key(loss_key: str) -> tuple[str, dict]:
-    name, _, hparam_str = loss_key.rpartition("_")
-    if not hparam_str:
-        return name, {}
+    marker = "_{"
+    idx = loss_key.find(marker)
+    if idx == -1:
+        return loss_key, {}
+    name = loss_key[:idx]
+    hparam_str = loss_key[idx + 1:]
     try:
         import ast
         hparams = ast.literal_eval(hparam_str)

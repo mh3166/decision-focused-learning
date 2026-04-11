@@ -230,8 +230,6 @@ def main():
     results_df["model0"] = model0
     results_df["data_seed"] = data_seed
     results_df["split_seed"] = split_seed
-    results_df["val_metric_cost"] = "observed"
-    results_df["test_regret_cost"] = "conditional_expectation"
 
     group_cols = ["loss_name", "hyperparameters", "sim", "baseline_sim", "n", "trial", "model0"]
     summary_rows = []
