@@ -162,11 +162,14 @@ def _make_loss_specs(optmodel, num_data: int) -> list[LossSpec]:
                 "update_every": [10, 25, 100],
             }),
         ),
-        LossSpec(
-            name="CILO",
-            factory=CILOLoss,
-            init_kwargs={"optmodel": optmodel, "is_minimization": True},
-        ),
+        # TEMPORARILY DISABLED FOR PORTFOLIO:
+        # CILO is commented out so the portfolio baseline does not stop on the
+        # known oracle issue encountered during its lambda search.
+        # LossSpec(
+        #     name="CILO",
+        #     factory=CILOLoss,
+        #     init_kwargs={"optmodel": optmodel, "is_minimization": True},
+        # ),
         # LossSpec(
         #     name="PGAdaptive",
         #     factory=PGAdaptiveLoss,
@@ -216,18 +219,26 @@ def main():
     indices_arr_test = torch.randperm(100000)
 
     sim = int(sys.argv[1])
-    n_arr = [200, 400, 800, 1600]
-    trials = 50
+    # Original full baseline sweep kept here for easy restoration:
+    # n_arr = [200, 400, 800, 1600]
+    # trials = 50
+    #
+    # exp_arr = []
+    # for n in n_arr:
+    #     for t in range(trials):
+    #         exp_arr.append([n, t])
+    #
+    # if sim < 0 or sim >= len(exp_arr):
+    #     raise ValueError(f"sim index out of range: {sim}. Must be in [0, {len(exp_arr) - 1}].")
+    #
+    # num_data, trial = exp_arr[sim]
 
-    exp_arr = []
-    for n in n_arr:
-        for t in range(trials):
-            exp_arr.append([n, t])
-
-    if sim < 0 or sim >= len(exp_arr):
-        raise ValueError(f"sim index out of range: {sim}. Must be in [0, {len(exp_arr) - 1}].")
-
-    num_data, trial = exp_arr[sim]
+    # TEMPORARY SINGLE-CONFIG RERUN:
+    # Restrict the portfolio baseline to the previously failing case so we can
+    # do a focused follow-up run on SLURM.
+    if sim != 13:
+        raise ValueError("Temporary portfolio baseline rerun only supports sim=13.")
+    num_data, trial = 200, 13
     epochs = 100
     val_size = 200
     test_size = 2000

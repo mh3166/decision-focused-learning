@@ -8,6 +8,7 @@ from typing import Optional, Tuple
 
 import numpy as np
 import torch
+import logging
 
 try:
     import gurobipy as gp
@@ -15,6 +16,9 @@ try:
 except ImportError:  # pragma: no cover - exercised only when dependency is absent
     gp = None
     GRB = None
+
+
+logger = logging.getLogger(__name__)
 
 def _as_numpy(costs) -> Tuple[np.ndarray, bool]:
     if isinstance(costs, torch.Tensor):
@@ -51,7 +55,12 @@ def _solve_single(cost: np.ndarray, Sigma: np.ndarray, gamma: float) -> Tuple[np
     model.addConstr(x.sum() <= 1.0, name="budget")
     model.optimize()
 
-    if model.Status != GRB.OPTIMAL:
+    if model.Status == GRB.SUBOPTIMAL and model.SolCount > 0:
+        logger.warning(
+            "Portfolio oracle received Gurobi status=13 (SUBOPTIMAL). "
+            "Accepting incumbent solution and continuing."
+        )
+    elif model.Status != GRB.OPTIMAL:
         raise RuntimeError(f"Gurobi failed to solve portfolio problem; status={model.Status}.")
 
     sol = np.asarray(x.X, dtype=float)

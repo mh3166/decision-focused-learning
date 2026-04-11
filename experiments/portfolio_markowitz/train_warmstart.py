@@ -104,6 +104,8 @@ def _make_loss_specs(optmodel, num_data: int) -> list[LossSpec]:
                 "control_variate": [True],
             }),
         ),
+        # CILO is intentionally not included for portfolio warm-start runs.
+        # Leave it disabled here while investigating portfolio oracle behavior.
         # LossSpec(
         #     name="PGAdaptive",
         #     factory=PGAdaptiveLoss,
