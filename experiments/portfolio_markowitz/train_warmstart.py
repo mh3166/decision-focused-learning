@@ -2,8 +2,10 @@
 
 Run train_baselines.py first. This script locates those checkpoints using
 BASELINE_RUN_ID, which should be set to the SLURM_ARRAY_JOB_ID from the
-baseline batch run. Its own outputs are grouped under the current
-SLURM_ARRAY_JOB_ID, or "local" when run outside SLURM.
+baseline batch run. Baseline checkpoints live under
+outputs/portfolio_markowitz/baseline/<BASELINE_RUN_ID>/ and this script writes
+its own outputs under outputs/portfolio_markowitz/warmstart/<SLURM_ARRAY_JOB_ID>
+or `local` when run outside SLURM.
 """
 
 import glob
@@ -46,7 +48,7 @@ def _baseline_run_id() -> str:
 
 
 def find_baseline_checkpoint(baseline_sim: int, num_data: int, trial: int, model0: str) -> str:
-    models_root = _repo_root() / "outputs" / "portfolio_markowitz"
+    models_root = _repo_root() / "outputs" / "portfolio_markowitz" / "baseline"
     fname = f"sim{baseline_sim}_n{num_data}_trial{trial}_{model0}_default.pt"
     pattern = str(models_root / _baseline_run_id() / fname)
     matches = sorted(glob.glob(pattern))

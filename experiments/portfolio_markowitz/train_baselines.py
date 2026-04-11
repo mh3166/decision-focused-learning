@@ -1,7 +1,8 @@
 """Train baseline portfolio models and save checkpoints for warm-start runs.
 
 Run this script before train_warmstart.py. The warm-start script expects to find
-the model checkpoints written here under outputs/portfolio_markowitz/<run_id>/.
+the model checkpoints written here under
+outputs/portfolio_markowitz/baseline/<run_id>/.
 """
 
 import os
@@ -307,7 +308,7 @@ def main():
 
     run_id = _run_id()
     repo_root = _repo_root()
-    results_run_dir = repo_root / "outputs" / "portfolio_markowitz" / str(run_id)
+    results_run_dir = repo_root / "outputs" / "portfolio_markowitz" / "baseline" / str(run_id)
     results_run_dir.mkdir(parents=True, exist_ok=True)
 
     if save_models:
