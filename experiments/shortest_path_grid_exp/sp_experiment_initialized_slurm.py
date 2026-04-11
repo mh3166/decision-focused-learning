@@ -14,10 +14,12 @@ from decision_learning.modeling.models import LinearRegression
 from decision_learning.modeling.pipeline import run_loss_experiments, expand_hyperparam_grid
 from decision_learning.modeling.loss_spec import LossSpec
 from decision_learning.modeling.loss import (
+    DecisionRegretLoss,
     PGLoss,
     PGDCALoss,
     PGAdaptiveLoss,
 )
+from decision_learning.modeling.smoothing import RandomizedSmoothingWrapper
 from decision_learning.benchmarks.shortest_path_grid.data import genData
 from decision_learning.benchmarks.shortest_path_grid.oracle import opt_oracle
 
@@ -221,6 +223,18 @@ def main():
             hyper_grid=expand_hyperparam_grid({
                 "h": h_values,
                 "update_every": [10, 25, 100],
+            }),
+        ),
+        LossSpec(
+            name='DecisionRegret_Smooth',
+            factory=RandomizedSmoothingWrapper,
+            init_kwargs={
+                "base_loss": DecisionRegretLoss(optmodel=optmodel, is_minimization=True),
+            },
+            hyper_grid=expand_hyperparam_grid({
+                "sigma": [0.1],
+                "s": [10],
+                "control_variate": [True],
             }),
         ),
         # LossSpec(

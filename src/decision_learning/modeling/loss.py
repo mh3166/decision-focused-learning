@@ -605,6 +605,121 @@ class FYFunc(Function):
         if grad_output.ndim == 1:
             grad_output = grad_output.unsqueeze(1)
         return grad_output * grad, None, None, None, None
+
+
+# -------------------------------------------------------------------------
+# Direct Decision Regret Loss
+# -------------------------------------------------------------------------
+
+class DecisionRegretLoss(nn.Module):
+    """
+    Direct per-sample decision regret.
+
+    This loss is intended for zeroth-order training through
+    RandomizedSmoothingWrapper. It can be evaluated directly for diagnostics,
+    but it does not define a direct gradient with respect to pred_cost.
+    Calling backward() on this loss outside RandomizedSmoothingWrapper raises
+    an error by design.
+    """
+
+    def __init__(
+        self,
+        optmodel: callable,
+        reduction: str = "mean",
+        is_minimization: bool = True,
+    ):
+        super().__init__()
+        self.optmodel = optmodel
+        self.reduction = reduction
+        self.is_minimization = is_minimization
+
+    def forward(
+        self,
+        pred_cost: torch.Tensor,
+        obs_cost: torch.Tensor | None = None,
+        obs_sol: torch.Tensor | None = None,
+        obs_obj: torch.Tensor | None = None,
+        instance_kwargs: dict | None = None,
+        **kwargs,
+    ):
+        loss = self.per_sample(
+            pred_cost,
+            obs_cost=obs_cost,
+            obs_sol=obs_sol,
+            obs_obj=obs_obj,
+            instance_kwargs=instance_kwargs,
+            **kwargs,
+        )
+        return _reduce_loss(loss, self.reduction)
+
+    def per_sample(
+        self,
+        pred_cost: torch.Tensor,
+        obs_cost: torch.Tensor | None = None,
+        obs_sol: torch.Tensor | None = None,
+        obs_obj: torch.Tensor | None = None,
+        instance_kwargs: dict | None = None,
+        **kwargs,
+    ):
+        if obs_cost is None:
+            raise ValueError("DecisionRegretLoss requires obs_cost.")
+        if obs_obj is None and obs_sol is None:
+            raise ValueError("DecisionRegretLoss requires obs_obj or obs_sol.")
+        if instance_kwargs is None:
+            instance_kwargs = {}
+
+        loss = DecisionRegretLossFunc.apply(
+            pred_cost,
+            obs_cost,
+            obs_sol,
+            obs_obj,
+            self.optmodel,
+            self.is_minimization,
+            instance_kwargs,
+        )
+        return _normalize_per_sample(loss)
+
+
+class DecisionRegretLossFunc(Function):
+    """Autograd guard for DecisionRegretLoss direct usage."""
+
+    @staticmethod
+    def forward(
+        ctx,
+        pred_cost: torch.Tensor,
+        obs_cost: torch.Tensor,
+        obs_sol: torch.Tensor | None,
+        obs_obj: torch.Tensor | None,
+        optmodel: callable,
+        is_minimization: bool = True,
+        instance_kwargs: dict = {},
+    ):
+        with torch.no_grad():
+            pred_sol, _ = optmodel(pred_cost, **instance_kwargs)
+            pred_sol = torch.as_tensor(pred_sol, dtype=pred_cost.dtype, device=pred_cost.device)
+            obs_cost = torch.as_tensor(obs_cost, dtype=pred_cost.dtype, device=pred_cost.device)
+
+            if obs_obj is None:
+                obs_sol = torch.as_tensor(obs_sol, dtype=pred_cost.dtype, device=pred_cost.device)
+                obs_obj = torch.sum(obs_cost * obs_sol, dim=1, keepdim=True)
+            else:
+                obs_obj = torch.as_tensor(obs_obj, dtype=pred_cost.dtype, device=pred_cost.device)
+                if obs_obj.ndim == 1:
+                    obs_obj = obs_obj.unsqueeze(1)
+
+            pred_obj_under_obs_cost = torch.sum(obs_cost * pred_sol, dim=1, keepdim=True)
+            loss = pred_obj_under_obs_cost - obs_obj
+            if not is_minimization:
+                loss = -loss
+
+        return loss
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        raise RuntimeError(
+            "DecisionRegretLoss has no direct gradient. Wrap it in "
+            "RandomizedSmoothingWrapper for training."
+        )
     
 
 # -------------------------------------------------------------------------

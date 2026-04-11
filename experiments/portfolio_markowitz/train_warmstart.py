@@ -17,9 +17,10 @@ import torch
 
 from decision_learning.benchmarks.portfolio_markowitz.data import genData
 from decision_learning.benchmarks.portfolio_markowitz.oracle import opt_oracle
-from decision_learning.modeling.loss import PGAdaptiveLoss, PGDCALoss, PGLoss
+from decision_learning.modeling.loss import DecisionRegretLoss, PGAdaptiveLoss, PGDCALoss, PGLoss
 from decision_learning.modeling.loss_spec import LossSpec
 from decision_learning.modeling.pipeline import expand_hyperparam_grid, run_loss_experiments
+from decision_learning.modeling.smoothing import RandomizedSmoothingWrapper
 from decision_learning.utils import handle_solver
 from train_baselines import (
     _load_portfolio_support_and_cov,
@@ -85,6 +86,18 @@ def _make_loss_specs(optmodel, num_data: int) -> list[LossSpec]:
             hyper_grid=expand_hyperparam_grid({
                 "h": h_values,
                 "update_every": [10, 25, 100],
+            }),
+        ),
+        LossSpec(
+            name="DecisionRegret_Smooth",
+            factory=RandomizedSmoothingWrapper,
+            init_kwargs={
+                "base_loss": DecisionRegretLoss(optmodel=optmodel, is_minimization=True),
+            },
+            hyper_grid=expand_hyperparam_grid({
+                "sigma": [0.1],
+                "s": [10],
+                "control_variate": [True],
             }),
         ),
         # LossSpec(

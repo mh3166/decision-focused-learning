@@ -17,6 +17,7 @@ from decision_learning.modeling.loss import (
     MSELoss,
     FYLoss,
     CILOLoss,
+    DecisionRegretLoss,
     PGLoss,
     PGDCALoss,
     PGAdaptiveLoss,
@@ -60,7 +61,7 @@ def _format_hparams(hparams: dict) -> str:
 
 
 def _parse_loss_key(loss_key: str) -> tuple[str, dict]:
-    name, _, hparam_str = loss_key.partition("_")
+    name, _, hparam_str = loss_key.rpartition("_")
     if not hparam_str:
         return name, {}
     try:
@@ -189,6 +190,18 @@ def main():
                 "s": 10,
                 "control_variate": True,
             },
+        ),
+        LossSpec(
+            name='DecisionRegret_Smooth',
+            factory=RandomizedSmoothingWrapper,
+            init_kwargs={
+                "base_loss": DecisionRegretLoss(optmodel=optmodel, is_minimization=True),
+            },
+            hyper_grid=expand_hyperparam_grid({
+                "sigma": [0.1],
+                "s": [10],
+                "control_variate": [True],
+            }),
         ),
         LossSpec(name='MSE', factory=MSELoss, init_kwargs={}),
         LossSpec(

@@ -1,7 +1,7 @@
 import torch
 
 from decision_learning.modeling.smoothing import RandomizedSmoothingWrapper
-from decision_learning.modeling.loss import PGLoss
+from decision_learning.modeling.loss import DecisionRegretLoss, PGLoss
 
 
 class ToyLoss(torch.nn.Module):
@@ -129,6 +129,50 @@ def test_randomized_smoothing_wrapper_with_pg_loss():
         obs_cost=obs_cost,
         obs_sol=None,
         obs_obj=None,
+        instance_kwargs=instance_kwargs,
+    )
+
+    assert torch.is_tensor(loss)
+    assert loss.ndim == 0
+    assert torch.isfinite(loss).all()
+
+    loss.backward()
+    assert pred.grad is not None
+    assert pred.grad.shape == (B, d)
+    assert torch.isfinite(pred.grad).all()
+
+
+def test_randomized_smoothing_wrapper_with_decision_regret_loss():
+    torch.manual_seed(0)
+    B, d = 4, 3
+    pred = torch.randn(B, d, requires_grad=True)
+    obs_cost = torch.tensor(
+        [[-1.0, 2.0, -0.5], [0.5, -1.0, 1.5], [-2.0, 0.1, 0.2], [1.0, -0.2, -0.3]],
+        dtype=torch.float32,
+    )
+    instance_kwargs = {"b": torch.ones_like(obs_cost)}
+    obs_sol, obs_obj = _box_oracle_torch(obs_cost, instance_kwargs["b"])
+
+    base = DecisionRegretLoss(
+        optmodel=_box_oracle_with_kwargs,
+        reduction="none",
+        is_minimization=True,
+    )
+    wrapper = RandomizedSmoothingWrapper(
+        base_loss=base,
+        sigma=0.1,
+        s=4,
+        seed=0,
+        antithetic=False,
+        control_variate=False,
+        reduction="mean",
+    )
+
+    loss = wrapper(
+        pred_cost=pred,
+        obs_cost=obs_cost,
+        obs_sol=obs_sol,
+        obs_obj=obs_obj,
         instance_kwargs=instance_kwargs,
     )
 

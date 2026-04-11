@@ -7,6 +7,7 @@ from decision_learning.modeling.loss import (
     PGLoss,
     SPOPlusLoss,
     FYLoss,
+    DecisionRegretLoss,
     CosineSurrogateDotProdMSELoss,
     CosineSurrogateDotProdVecMagLoss,
     PGDCALoss,
@@ -272,6 +273,55 @@ def test_pg_loss_scale_by_norm_central_diff():
 
     assert torch.allclose(scaled_loss, expected_scaled, rtol=1e-6, atol=1e-6)
     assert torch.allclose(unscaled_loss, expected_unscaled, rtol=1e-6, atol=1e-6)
+
+
+def test_decision_regret_loss_per_sample_matches_expected_regret():
+    torch.manual_seed(0)
+    obs_cost, batch = _make_standard_batch()
+    instance_kwargs = batch["instance_kwargs"]
+    pred = torch.tensor(
+        [[1.0, -1.0, 0.5], [-0.5, 1.0, -1.5], [1.0, -0.1, -0.2], [-1.0, 0.2, 0.3]],
+        dtype=torch.float32,
+        requires_grad=True,
+    )
+
+    loss_fn = DecisionRegretLoss(
+        optmodel=_box_oracle_with_kwargs,
+        reduction="none",
+        is_minimization=True,
+    )
+
+    pred_sol, _ = _box_oracle_with_kwargs(pred, **instance_kwargs)
+    expected = torch.sum(obs_cost * pred_sol, dim=1) - batch["obs_obj"].squeeze(1)
+    loss = loss_fn.per_sample(
+        pred,
+        obs_cost=obs_cost,
+        obs_obj=batch["obs_obj"],
+        instance_kwargs=instance_kwargs,
+    )
+
+    assert torch.allclose(loss, expected)
+
+
+def test_decision_regret_loss_direct_backward_raises():
+    torch.manual_seed(0)
+    obs_cost, batch = _make_standard_batch()
+    pred = (obs_cost + 0.05 * torch.randn_like(obs_cost)).requires_grad_(True)
+    loss_fn = DecisionRegretLoss(
+        optmodel=_box_oracle_with_kwargs,
+        reduction="mean",
+        is_minimization=True,
+    )
+
+    loss = loss_fn(
+        pred,
+        obs_cost=obs_cost,
+        obs_obj=batch["obs_obj"],
+        instance_kwargs=batch["instance_kwargs"],
+    )
+
+    with pytest.raises(RuntimeError, match="RandomizedSmoothingWrapper"):
+        loss.backward()
 
 
 def test_cilo_loss_contract_backward_step():
