@@ -5,6 +5,8 @@ __pycache__/
 
 #output files (VG)
 *.out
+outputs/shortest_path_grid_exp/**
+outputs/portfolio_markowitz/**
 
 # C extensions
 *.so
