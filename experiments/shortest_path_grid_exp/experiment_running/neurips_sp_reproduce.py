@@ -132,9 +132,9 @@ def main():
             LossSpec(name='Cosine', factory=CosineEmbeddingLoss, init_kwargs={}),
         ]
         preimplement_loss_results, preimplement_loss_models = run_loss_experiments(X_train=generated_data['feat'],
-                true_cost_train=generated_data['cost'],
+                obs_cost_train=generated_data['cost'],
                 X_test=generated_data_test['feat'],
-                true_cost_test=generated_data_test['cost_true'], 
+                obs_cost_test=generated_data_test['cond_exp_cost'], 
                 pred_model=pred_model,
                 opt_oracle=optmodel,
                 train_instance_kwargs=train_instance_kwargs,
@@ -160,9 +160,9 @@ def main():
             )
         ]
         PG_init_results, PG_init_models = run_loss_experiments(X_train=generated_data['feat'],
-                true_cost_train=generated_data['cost'],
+                obs_cost_train=generated_data['cost'],
                 X_test=generated_data_test['feat'],
-                true_cost_test=generated_data_test['cost_true'], 
+                obs_cost_test=generated_data_test['cond_exp_cost'], 
                 pred_model=preimplement_loss_models['SPO+_{}'],
                 opt_oracle=optmodel,
                 train_instance_kwargs=train_instance_kwargs,
@@ -190,9 +190,9 @@ def main():
             ),
         ]
         cos_surr_results, cos_surr_models = run_loss_experiments(X_train=generated_data['feat'],
-                        true_cost_train=generated_data['cost'],
+                        obs_cost_train=generated_data['cost'],
                         X_test=generated_data_test['feat'],
-                        true_cost_test=generated_data_test['cost_true'], 
+                        obs_cost_test=generated_data_test['cond_exp_cost'], 
                         pred_model=pred_model,
                         opt_oracle=optmodel,
                         train_instance_kwargs=train_instance_kwargs,

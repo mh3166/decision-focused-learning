@@ -52,49 +52,50 @@ def CILO_lbda(
         sol, _ = optmodel(pred_cost + lbda * Y, **kwargs)  # sol: (batch, d)
         # mean over batch of dot(Y_i, sol_i)
         return (torch.sum(Y * sol, dim=1).mean() - beta).item()
+    # ---- 0) Check lambda = 0 first and exit early. ----
+    res0 = residual(0.0)
+    if res0 <= 0.0:
+        return 0.0 #already feasible at lambda = 0
 
-    # ---- 1) Bracket root: find [lbda_l, lbda_u] with res(l) > 0 and res(u) <= 0 ----
+    # ---- 1) Bracket feasibility boundary: 
+    #find [lbda_l, lbda_u] with res(l) > 0 and res(u) <= 0 ----
     lbda_l = 0.0
-    lbda_u = float(init_upper)
+    res_l = res0  # > 0 above
 
+    lbda_u = float(init_upper)
     res_u = residual(lbda_u)
+
     expand_steps = 0
-    while res_u > 0 and expand_steps < max_expand:
-        lbda_l = lbda_u
+    while res_u > 0.0 and expand_steps < max_expand:
+        lbda_l, res_l = lbda_u, res_u
         lbda_u *= 2.0
         res_u = residual(lbda_u)
         expand_steps += 1
 
-    # If we never found res_u <= 0, we can't bracket; return best effort upper.
-    if res_u > 0:
+    # If we never found feasibility, we can't bracket; return best effort upper.
+    # (This still returns an infeasible lambda if res_u > 0.)
+    if res_u > 0.0:
         return lbda_u
 
-    # ---- 2) Bisection on bracket ----
-    res_l = residual(lbda_l)  # should typically be > 0 for a proper bracket
-    lbda = 0.5 * (lbda_l + lbda_u)
-
+    # ---- 2) Bisection to find the smallest feasible lambda ----
+    # Invariant: res_l > 0 (infeasible), res_u <= 0 (feasible)
     for _ in range(max_bisect):
-        res_mid = residual(lbda)
+        lbda_mid = 0.5 * (lbda_l + lbda_u)
+        res_mid = residual(lbda_mid)
 
-        if abs(res_mid) <= sens:
-            break
-
-        # Maintain invariant: res(l) > 0, res(u) <= 0
-        if res_mid > 0:
-            lbda_l, res_l = lbda, res_mid
+        # If mid is feasible, tighten the upper bound (seek smallest feasible)
+        if res_mid <= 0.0:
+            lbda_u, res_u = lbda_mid, res_mid
         else:
-            lbda_u, res_u = lbda, res_mid
+            lbda_l, res_l = lbda_mid, res_mid
 
-        new_lbda = 0.5 * (lbda_l + lbda_u)
-
-        # Optional early stop: interval too small and we're on the feasible side
-        if abs(new_lbda - lbda) < sens and res_mid <= 0:
-            lbda = new_lbda
+        # Stop when interval is small enough (lambda-scale tolerance)
+        if (lbda_u - lbda_l) <= sens:
             break
 
-        lbda = new_lbda
+    # note, even if we max out, lbda_u is feasible.
+    return float(lbda_u)
 
-    return float(lbda)
 
 # -------------------------------------------------------------------------
 # SPO Plus (Smart Predict and Optimize Plus) Loss
@@ -141,17 +142,17 @@ class SPOPlusLoss(nn.Module):
     def forward(
             self,
             pred_cost: torch.Tensor,
-            true_cost: torch.Tensor | None = None,
-            true_sol: torch.Tensor | None = None,
-            true_obj: torch.Tensor | None = None,
+            obs_cost: torch.Tensor | None = None,
+            obs_sol: torch.Tensor | None = None,
+            obs_obj: torch.Tensor | None = None,
             instance_kwargs: dict | None = None,
             **kwargs,
         ):
         loss = self.per_sample(
             pred_cost,
-            true_cost=true_cost,
-            true_sol=true_sol,
-            true_obj=true_obj,
+            obs_cost=obs_cost,
+            obs_sol=obs_sol,
+            obs_obj=obs_obj,
             instance_kwargs=instance_kwargs,
             **kwargs,
         )
@@ -160,9 +161,9 @@ class SPOPlusLoss(nn.Module):
     def per_sample(
             self,
             pred_cost: torch.Tensor,
-            true_cost: torch.Tensor | None = None,
-            true_sol: torch.Tensor | None = None,
-            true_obj: torch.Tensor | None = None,
+            obs_cost: torch.Tensor | None = None,
+            obs_sol: torch.Tensor | None = None,
+            obs_obj: torch.Tensor | None = None,
             instance_kwargs: dict | None = None,
             **kwargs,
         ):
@@ -171,17 +172,17 @@ class SPOPlusLoss(nn.Module):
         
         Args:            
             pred_cost (torch.tensor): a batch of predicted values of the cost            
-            true_cost (torch.tensor): a batch of true values of the cost
-            true_sol (torch.tensor): a batch of true optimal solutions
-            true_obj (torch.tensor): a batch of true optimal objective values            
+            obs_cost (torch.tensor): a batch of observed cost values
+            obs_sol (torch.tensor): a batch of solutions w.r.t. obs_cost
+            obs_obj (torch.tensor): a batch of objectives w.r.t. obs_cost and obs_sol            
 
         """
         if instance_kwargs is None:
             instance_kwargs = {}
         loss = SPOPlusLossFunc.apply(pred_cost, 
-                            true_cost, 
-                            true_sol, 
-                            true_obj, 
+                            obs_cost, 
+                            obs_sol, 
+                            obs_obj, 
                             self.optmodel, 
                             self.is_minimization,                             
                             instance_kwargs
@@ -197,9 +198,9 @@ class SPOPlusLossFunc(Function):
     @staticmethod
     def forward(ctx, 
             pred_cost: torch.tensor, 
-            true_cost: torch.tensor, 
-            true_sol: torch.tensor, 
-            true_obj: torch.tensor,
+            obs_cost: torch.tensor, 
+            obs_sol: torch.tensor, 
+            obs_obj: torch.tensor,
             optmodel: callable,
             is_minimization: bool = True,            
             instance_kwargs: dict = {}):
@@ -209,9 +210,9 @@ class SPOPlusLossFunc(Function):
         Args:
             ctx: Context object to store information for backward computation
             pred_cost (torch.tensor): a batch of predicted values of the cost            
-            true_cost (torch.tensor): a batch of true values of the cost
-            true_sol (torch.tensor): a batch of true optimal solutions
-            true_obj (torch.tensor): a batch of true optimal objective values
+            obs_cost (torch.tensor): a batch of observed cost values
+            obs_sol (torch.tensor): a batch of solutions w.r.t. obs_cost
+            obs_obj (torch.tensor): a batch of objectives w.r.t. obs_cost and obs_sol
             optmodel (callable): a function/class that solves an optimization problem using pred_cost. For every batch of data, we use
                 optmodel to solve the optimization problem using the predicted cost to get the optimal solution and objective value.
                 It must take in:                                 
@@ -231,7 +232,7 @@ class SPOPlusLossFunc(Function):
         # rename variable names for convenience
         # c for cost, w for solution variables, z for obj values, and we use _hat for variables derived from predicted values
         c_hat = pred_cost
-        c, w, z = true_cost, true_sol, true_obj
+        c, w, z = obs_cost, obs_sol, obs_obj
         
         # get batch's current optimal solution value and objective vvalue based on the predicted cost
         w_hat, z_hat = optmodel(2*c_hat - c, **instance_kwargs)                            
@@ -280,7 +281,8 @@ class PGLoss(nn.Module):
                 h: float=1, 
                 finite_diff_type: str='B', 
                 reduction: str="mean", 
-                is_minimization: bool=True
+                is_minimization: bool=True,
+                scale_by_norm: bool=False,
             ):                 
         """
         Args:
@@ -300,7 +302,8 @@ class PGLoss(nn.Module):
                                             - Central Differencing/PGC ('C')
                                             - Forward Differencing/PGF ('F')
             reduction (str): the reduction to apply to the output
-            is_minimization (bool): whether the optimization problem is minimization or maximization            
+            is_minimization (bool): whether the optimization problem is minimization or maximization
+            scale_by_norm (bool): whether to scale per-sample perturbations by l2 norm
         """
         # the finite difference step size h must be positive
         if h < 0:
@@ -315,22 +318,23 @@ class PGLoss(nn.Module):
         self.reduction = reduction
         self.is_minimization = is_minimization
         self.optmodel = optmodel
+        self.scale_by_norm = scale_by_norm
         
 
     def forward(
             self,
             pred_cost: torch.Tensor,
-            true_cost: torch.Tensor | None = None,
-            true_sol: torch.Tensor | None = None,
-            true_obj: torch.Tensor | None = None,
+            obs_cost: torch.Tensor | None = None,
+            obs_sol: torch.Tensor | None = None,
+            obs_obj: torch.Tensor | None = None,
             instance_kwargs: dict | None = None,
             **kwargs,
         ):
         loss = self.per_sample(
             pred_cost,
-            true_cost=true_cost,
-            true_sol=true_sol,
-            true_obj=true_obj,
+            obs_cost=obs_cost,
+            obs_sol=obs_sol,
+            obs_obj=obs_obj,
             instance_kwargs=instance_kwargs,
             **kwargs,
         )
@@ -339,9 +343,9 @@ class PGLoss(nn.Module):
     def per_sample(
             self,
             pred_cost: torch.Tensor,
-            true_cost: torch.Tensor | None = None,
-            true_sol: torch.Tensor | None = None,
-            true_obj: torch.Tensor | None = None,
+            obs_cost: torch.Tensor | None = None,
+            obs_sol: torch.Tensor | None = None,
+            obs_obj: torch.Tensor | None = None,
             instance_kwargs: dict | None = None,
             **kwargs,
         ):
@@ -350,16 +354,17 @@ class PGLoss(nn.Module):
         
         Args:            
             pred_cost (torch.tensor): a batch of predicted values of the cost            
-            true_cost (torch.tensor): a batch of true values of the cost
+            obs_cost (torch.tensor): a batch of observed cost values
         """
         if instance_kwargs is None:
             instance_kwargs = {}
         loss = PGFunc.apply(pred_cost, 
-                            true_cost, 
+                            obs_cost, 
                             self.h, 
                             self.finite_diff_type, 
                             self.optmodel,
-                            self.is_minimization,                                           
+                            self.is_minimization,
+                            self.scale_by_norm,                                           
                             instance_kwargs
                         )
         return _normalize_per_sample(loss)
@@ -374,18 +379,19 @@ class PGFunc(Function):
     @staticmethod
     def forward(ctx, 
             pred_cost: torch.tensor, 
-            true_cost: torch.tensor, 
+            obs_cost: torch.tensor, 
             h: float, 
             finite_diff_type: str,
             optmodel: callable,
-            is_minimization: bool = True,            
+            is_minimization: bool = True,
+            scale_by_norm: bool = False,
             instance_kwargs: dict = {}):            
         """
         Forward pass for PG Loss.
 
         Args:
             pred_cost (torch.tensor): a batch of predicted values of the cost
-            true_cost (torch.tensor): a batch of true values of the cost
+            obs_cost (torch.tensor): a batch of observed cost values
             h (float): perturbation size/finite difference step size for zeroth order gradient approximation
             finite_diff_type (str, optional): Specify type of finite-difference scheme:
                                             - Backward Differencing/PGB ('B')
@@ -402,6 +408,7 @@ class PGFunc(Function):
                 In practice, the user should wrap their own optmodel in the decision_learning.utils.handle_solver function so that
                 these are all taken care of.
             is_minimization (bool): whether the optimization problem is minimization or maximization         
+            scale_by_norm (bool): whether to scale per-sample perturbations by l2 norm
             instance_kwargs (dict): a dictionary of per-sample arrays of data that define each optimization instance
             
             
@@ -411,21 +418,27 @@ class PGFunc(Function):
         # detach (stops gradient tracking since we will compute custom gradient) and move to cpu. Do this since
         # generally the optmodel is probably cpu based
         cp = pred_cost 
-        c = true_cost 
+        c = obs_cost 
+
+        if scale_by_norm:
+            norms = torch.norm(c, dim=1, keepdim=True)
+            scaled_c = torch.where(norms > 0, c / norms, c)
+        else:
+            scaled_c = c
 
         # for PG loss with zeroth order gradients, we need to perturb the predicted costs and solve
         # two optimization problems to approximate the gradient, where there is a cost plus and minus perturbation
         # that changes depending on the finite difference scheme.
-        if finite_diff_type == 'C': # central diff: (1/2h) * (optmodel(pred_cost + h*true_cost) - optmodel(pred_cost - h*true_cost))
-            cp_plus = cp + h * c
-            cp_minus = cp - h * c
+        if finite_diff_type == 'C': # central diff: (1/2h) * (optmodel(pred_cost + h*obs_cost) - optmodel(pred_cost - h*obs_cost))
+            cp_plus = cp + h * scaled_c
+            cp_minus = cp - h * scaled_c
             step_size = 1 / (2 * h)
-        elif finite_diff_type == 'B': # back diff: (1/h) * (optmodel(pred_cost) - optmodel(pred_cost - h*true_cost))
+        elif finite_diff_type == 'B': # back diff: (1/h) * (optmodel(pred_cost) - optmodel(pred_cost - h*obs_cost))
             cp_plus = cp
-            cp_minus = cp - h * c
+            cp_minus = cp - h * scaled_c
             step_size = 1 / h
-        elif finite_diff_type == 'F': # forward diff: (1/h) * (optmodel(pred_cost + h*true_cost) - optmodel(pred_cost))
-            cp_plus = cp + h * c
+        elif finite_diff_type == 'F': # forward diff: (1/h) * (optmodel(pred_cost + h*obs_cost) - optmodel(pred_cost))
+            cp_plus = cp + h * scaled_c
             cp_minus = cp
             step_size = 1 / h
 
@@ -495,17 +508,17 @@ class FYLoss(nn.Module):
     def forward(
         self,
         pred_cost: torch.Tensor,
-        true_cost: torch.Tensor | None = None,
-        true_sol: torch.Tensor | None = None,
-        true_obj: torch.Tensor | None = None,
+        obs_cost: torch.Tensor | None = None,
+        obs_sol: torch.Tensor | None = None,
+        obs_obj: torch.Tensor | None = None,
         instance_kwargs: dict | None = None,
         **kwargs,
     ):
         loss = self.per_sample(
             pred_cost,
-            true_cost=true_cost,
-            true_sol=true_sol,
-            true_obj=true_obj,
+            obs_cost=obs_cost,
+            obs_sol=obs_sol,
+            obs_obj=obs_obj,
             instance_kwargs=instance_kwargs,
             **kwargs,
         )
@@ -514,9 +527,9 @@ class FYLoss(nn.Module):
     def per_sample(
         self,
         pred_cost: torch.Tensor,
-        true_cost: torch.Tensor | None = None,
-        true_sol: torch.Tensor | None = None,
-        true_obj: torch.Tensor | None = None,
+        obs_cost: torch.Tensor | None = None,
+        obs_sol: torch.Tensor | None = None,
+        obs_obj: torch.Tensor | None = None,
         instance_kwargs: dict | None = None,
         **kwargs,
     ):
@@ -527,7 +540,7 @@ class FYLoss(nn.Module):
             instance_kwargs = {}
         loss = FYFunc.apply(
             pred_cost,
-            true_sol,
+            obs_sol,
             self.optmodel,
             self.is_minimization,
             instance_kwargs,
@@ -543,7 +556,7 @@ class FYFunc(Function):
     @staticmethod
     def forward(ctx,
             pred_cost: torch.tensor,
-            true_sol: torch.tensor,
+            obs_sol: torch.tensor,
             optmodel: callable,
             is_minimization: bool = True,
             instance_kwargs: dict = {}):
@@ -552,7 +565,7 @@ class FYFunc(Function):
 
         Args:
             pred_cost (torch.tensor): a batch of predicted values of the cost
-            true_sol (torch.tensor): a batch of true optimal solutions
+            obs_sol (torch.tensor): a batch of solutions w.r.t. obs_cost
             optmodel (callable): solves the optimization problem given pred_cost
             is_minimization (bool): whether the optimization problem is minimization or maximization
             instance_kwargs (dict): per-sample data defining each optimization instance
@@ -563,13 +576,13 @@ class FYFunc(Function):
         # Notation: T is predicted costs, z_star is true solution, z_T is predicted solution.
         # Let optmodel handle any detaching / device moves as needed.
         T = pred_cost
-        z_star = true_sol
+        z_star = obs_sol
 
         with torch.no_grad():
             z_T, _ = optmodel(T, **instance_kwargs)
 
-        # Inner product <pred_cost, pred_sol - true_sol>
-        loss = torch.sum(T * (z_T - z_star), dim=1)
+        # Inner product <pred_cost, pred_sol - obs_sol>
+        loss = torch.sum(T * (z_star - z_T), dim=1)
         if not is_minimization:
             loss = -loss
 
@@ -585,7 +598,7 @@ class FYFunc(Function):
         Backward pass for Fenchel-Young loss.
         """
         z_T, z_star = ctx.saved_tensors
-        grad = (z_T - z_star).to(grad_output.device)
+        grad = (z_star - z_T).to(grad_output.device)
         if not ctx.is_minimization:
             grad = -grad
 
@@ -603,12 +616,18 @@ class PGAdaptiveLoss(nn.Module):
     Adaptive PG loss where the perturbation scale h is chosen via CILO_lbda
     based on the current batch. pred_cost is computed externally and passed in.
     """
+    DEFAULT_BETA_SCALE = 0.1
+
     def __init__(self, optmodel, 
-                    beta: float,
+                    h: float,
+                    beta: float | None = None,
                     reduction: str="mean", 
                     is_minimization: bool=True):
+        if h < 0:
+            raise ValueError("h must be positive")
         super().__init__()
         self.optmodel = optmodel
+        self.h = float(h)
         self.beta = beta
         self.reduction = reduction
         self.is_minimization = is_minimization
@@ -616,23 +635,18 @@ class PGAdaptiveLoss(nn.Module):
     def forward(
         self,
         pred_cost: torch.Tensor,   # f_theta(w) computed outside
-        true_cost: torch.Tensor | None = None,
-        true_sol: torch.Tensor | None = None,
-        true_obj: torch.Tensor | None = None,
+        obs_cost: torch.Tensor | None = None,
+        obs_sol: torch.Tensor | None = None,
+        obs_obj: torch.Tensor | None = None,
         instance_kwargs: dict | None = None,  # per-sample data defining the optimization instance (e.g., feasible region).
-        *,
-        X: torch.Tensor | None = None,           # inputs to model (needed for model0(X))
-        pred_model: nn.Module | None = None,     # live model (for snapshot updates)
         **kwargs,
     ):
         loss = self.per_sample(
             pred_cost,
-            true_cost=true_cost,
-            true_sol=true_sol,
-            true_obj=true_obj,
+            obs_cost=obs_cost,
+            obs_sol=obs_sol,
+            obs_obj=obs_obj,
             instance_kwargs=instance_kwargs,
-            X=X,
-            pred_model=pred_model,
             **kwargs,
         )
         return _reduce_loss(loss, self.reduction)
@@ -640,42 +654,84 @@ class PGAdaptiveLoss(nn.Module):
     def per_sample(
         self,
         pred_cost: torch.Tensor,   # f_theta(w) computed outside
-        true_cost: torch.Tensor | None = None,
-        true_sol: torch.Tensor | None = None,
-        true_obj: torch.Tensor | None = None,
+        obs_cost: torch.Tensor | None = None,
+        obs_sol: torch.Tensor | None = None,
+        obs_obj: torch.Tensor | None = None,
         instance_kwargs: dict | None = None,  # per-sample data defining the optimization instance (e.g., feasible region).
-        *,
-        X: torch.Tensor | None = None,           # inputs to model (needed for model0(X))
-        pred_model: nn.Module | None = None,     # live model (for snapshot updates)
         **kwargs,
     ):
         t = pred_cost
-        y = true_cost
+        y = obs_cost
         if instance_kwargs is None:
             instance_kwargs = {}
 
+        if self.beta is None:
+            if obs_obj is None:
+                raise ValueError("PGAdaptiveLoss requires obs_obj to infer beta when beta is None.")
+            mean_obj = torch.mean(obs_obj.float()).item()
+            offset = self.DEFAULT_BETA_SCALE * abs(mean_obj)
+            if self.is_minimization:
+                self.beta = mean_obj + offset
+            else:
+                self.beta = mean_obj - offset
+
         with torch.no_grad():
             h = CILO_lbda(t, y, self.optmodel, self.beta, kwargs=instance_kwargs)
+            h = max(h, self.h) #clip from below
 
         t_plus = t + h * y
 
-        # ----------------------------------------------------
-        # Compute reference term using frozen model and new model
-        # ----------------------------------------------------
+        # # ----------------------------------------------------
+        # # Compute objective terms at t and t + h y
+        # # ----------------------------------------------------
+        # with torch.no_grad():
+        #     x_t, obj_t = self.optmodel(t, **instance_kwargs)
+        #     x_t, obj_t = x_t.detach(), obj_t.detach()
+        #     x_t_plus, obj_t_plus = self.optmodel(t_plus, **instance_kwargs)
+        #     x_t_plus, obj_t_plus = x_t_plus.detach(), obj_t_plus.detach()
+
+        # term1 = torch.sum(t_plus * x_t_plus, axis = 1)
+        # # print("term 1: ", term1.mean().item(), torch.sum(x_t_plus, axis = 1).mean().item())
+
+        # # Live term: gradients flow through t and through x_fn(t-hc) if x_fn supports autograd
+        # term2 = torch.sum(t * x_t, axis = 1)
+        # # print("term 2: ", term2.mean().item(), torch.sum(x_t_plus, axis = 1).mean().item())
+
+        # loss = (term1 - term2) / h
+
+        ##VG Edit to fix the 0/0 and catastrophic cancellations
+        #specify a tolerance that will be used to compare to zero for safety
+        if t.dtype == torch.float32:
+            TOL = 1e-8
+        else:
+            TOL = 1e-12
+
         with torch.no_grad():
             x_t, obj_t = self.optmodel(t, **instance_kwargs)
-            x_t, obj_t = x_t.detach(), obj_t.detach()
-            x_t_plus, obj_t_plus = self.optmodel(t_plus, **instance_kwargs)
-            x_t_plus, obj_t_plus = x_t_plus.detach(), obj_t_plus.detach()
+            x_t = x_t.detach()
 
-        term1 = torch.sum(t * x_t_plus, axis = 1)
-        # print("term 1: ", term1.mean().item(), torch.sum(x_t_plus, axis = 1).mean().item())
+        # Compute the actual limit as h -> 0, always well-defined
+        dir_val = torch.sum(y * x_t, dim=1)  # <Y, z*(t)>
 
-        # Live term: gradients flow through t and through x_fn(t-hc) if x_fn supports autograd
-        term2 = torch.sum(t * x_t, axis = 1)
-        # print("term 2: ", term2.mean().item(), torch.sum(x_t_plus, axis = 1).mean().item())
+        # If h is (approximately) zero, avoid 0/0 and return the limit value
+        if abs(h) <= TOL:
+            # Anchor to pred_cost so backward() works but gradient stays zero.
+            loss = dir_val + 0.0 * t.sum()
+        else: #need to actually evaluate the finite difference
+            with torch.no_grad():
+                x_t_plus, obj_t_plus = self.optmodel(t_plus, **instance_kwargs)
+                x_t_plus = x_t_plus.detach()
 
-        loss = (term1 - term2) / h
+            # If the optimizer didn't change, avoid cancellations and return limit value again
+            # loss = <Y, z*(t)> exactly (for t_plus = t + hY).
+            if torch.max(torch.abs(x_t_plus - x_t)) <= TOL:
+                # Anchor to pred_cost so backward() works but gradient stays zero.
+                loss = dir_val + 0.0 * t.sum()
+            else: #actually compute the difference
+                term1 = torch.sum(t_plus * x_t_plus, dim=1)
+                term2 = torch.sum(t * x_t, dim=1)
+                loss = (term1 - term2) / h
+
         return _normalize_per_sample(loss)
 
 # -------------------------------------------------------------------------
@@ -705,17 +761,17 @@ class CosineSurrogateDotProdMSELoss(nn.Module):
     def forward(
             self,
             pred_cost: torch.Tensor,
-            true_cost: torch.Tensor | None = None,
-            true_sol: torch.Tensor | None = None,
-            true_obj: torch.Tensor | None = None,
+            obs_cost: torch.Tensor | None = None,
+            obs_sol: torch.Tensor | None = None,
+            obs_obj: torch.Tensor | None = None,
             instance_kwargs: dict | None = None,
             **kwargs,
         ):
         loss = self.per_sample(
             pred_cost,
-            true_cost=true_cost,
-            true_sol=true_sol,
-            true_obj=true_obj,
+            obs_cost=obs_cost,
+            obs_sol=obs_sol,
+            obs_obj=obs_obj,
             instance_kwargs=instance_kwargs,
             **kwargs,
         )
@@ -724,9 +780,9 @@ class CosineSurrogateDotProdMSELoss(nn.Module):
     def per_sample(
             self,
             pred_cost: torch.Tensor,
-            true_cost: torch.Tensor | None = None,
-            true_sol: torch.Tensor | None = None,
-            true_obj: torch.Tensor | None = None,
+            obs_cost: torch.Tensor | None = None,
+            obs_sol: torch.Tensor | None = None,
+            obs_obj: torch.Tensor | None = None,
             instance_kwargs: dict | None = None,
             **kwargs,
         ):
@@ -735,14 +791,14 @@ class CosineSurrogateDotProdMSELoss(nn.Module):
         
         Args:
             pred_cost (torch.tensor): a batch of predicted values of the cost
-            true_cost (torch.tensor): a batch of true values of the cost        
+            obs_cost (torch.tensor): a batch of observed cost values        
         """        
-        mse = self.mse_loss(pred_cost, true_cost)
+        mse = self.mse_loss(pred_cost, obs_cost)
         if mse.ndim > 1:
             mse = mse.view(mse.shape[0], -1).mean(dim=1)
         
         # ----- Compute dot product -----
-        dot_product = torch.sum(pred_cost * true_cost, dim=1)
+        dot_product = torch.sum(pred_cost * obs_cost, dim=1)
         if self.is_minimization:
             dot_product = -dot_product # negate dot product for minimization
         
@@ -773,17 +829,17 @@ class CosineSurrogateDotProdVecMagLoss(nn.Module):
     def forward(
             self,
             pred_cost: torch.Tensor,
-            true_cost: torch.Tensor | None = None,
-            true_sol: torch.Tensor | None = None,
-            true_obj: torch.Tensor | None = None,
+            obs_cost: torch.Tensor | None = None,
+            obs_sol: torch.Tensor | None = None,
+            obs_obj: torch.Tensor | None = None,
             instance_kwargs: dict | None = None,
             **kwargs,
         ):
         loss = self.per_sample(
             pred_cost,
-            true_cost=true_cost,
-            true_sol=true_sol,
-            true_obj=true_obj,
+            obs_cost=obs_cost,
+            obs_sol=obs_sol,
+            obs_obj=obs_obj,
             instance_kwargs=instance_kwargs,
             **kwargs,
         )
@@ -792,9 +848,9 @@ class CosineSurrogateDotProdVecMagLoss(nn.Module):
     def per_sample(
             self,
             pred_cost: torch.Tensor,
-            true_cost: torch.Tensor | None = None,
-            true_sol: torch.Tensor | None = None,
-            true_obj: torch.Tensor | None = None,
+            obs_cost: torch.Tensor | None = None,
+            obs_sol: torch.Tensor | None = None,
+            obs_obj: torch.Tensor | None = None,
             instance_kwargs: dict | None = None,
             **kwargs,
         ):
@@ -804,12 +860,12 @@ class CosineSurrogateDotProdVecMagLoss(nn.Module):
 
         Args:
             pred_cost (torch.tensor): a batch of predicted values of the cost
-            true_cost (torch.tensor): a batch of true values of the cost          
+            obs_cost (torch.tensor): a batch of observed cost values          
         """    
         dot_product_self = torch.sum(pred_cost * pred_cost, dim=1)
         
         # dot product of predicted and true costs - measure angle between predicted and true costs
-        dot_product_ang = torch.sum(pred_cost * true_cost, dim=1)
+        dot_product_ang = torch.sum(pred_cost * obs_cost, dim=1)
         if self.is_minimization:
             dot_product_ang = -dot_product_ang # negate dot product for minimization
         
@@ -833,19 +889,19 @@ class MSELoss(nn.Module):
     def forward(
             self,
             pred_cost: torch.Tensor,
-            true_cost: torch.Tensor | None = None,
-            true_sol: torch.Tensor | None = None,
-            true_obj: torch.Tensor | None = None,
+            obs_cost: torch.Tensor | None = None,
+            obs_sol: torch.Tensor | None = None,
+            obs_obj: torch.Tensor | None = None,
             instance_kwargs: dict | None = None,
             **kwargs,
         ):
-        if true_cost is None:
-            raise ValueError("StandardMSELoss requires true_cost.")
+        if obs_cost is None:
+            raise ValueError("StandardMSELoss requires obs_cost.")
         loss = self.per_sample(
             pred_cost,
-            true_cost=true_cost,
-            true_sol=true_sol,
-            true_obj=true_obj,
+            obs_cost=obs_cost,
+            obs_sol=obs_sol,
+            obs_obj=obs_obj,
             instance_kwargs=instance_kwargs,
             **kwargs,
         )
@@ -854,15 +910,15 @@ class MSELoss(nn.Module):
     def per_sample(
             self,
             pred_cost: torch.Tensor,
-            true_cost: torch.Tensor | None = None,
-            true_sol: torch.Tensor | None = None,
-            true_obj: torch.Tensor | None = None,
+            obs_cost: torch.Tensor | None = None,
+            obs_sol: torch.Tensor | None = None,
+            obs_obj: torch.Tensor | None = None,
             instance_kwargs: dict | None = None,
             **kwargs,
         ):
-        if true_cost is None:
-            raise ValueError("StandardMSELoss requires true_cost.")
-        loss = self.mse(pred_cost, true_cost)
+        if obs_cost is None:
+            raise ValueError("StandardMSELoss requires obs_cost.")
+        loss = self.mse(pred_cost, obs_cost)
         if loss.ndim > 1:
             loss = loss.view(loss.shape[0], -1).mean(dim=1)
         return _normalize_per_sample(loss)
@@ -879,19 +935,19 @@ class CosineEmbeddingLoss(nn.Module):
     def forward(
             self,
             pred_cost: torch.Tensor,
-            true_cost: torch.Tensor | None = None,
-            true_sol: torch.Tensor | None = None,
-            true_obj: torch.Tensor | None = None,
+            obs_cost: torch.Tensor | None = None,
+            obs_sol: torch.Tensor | None = None,
+            obs_obj: torch.Tensor | None = None,
             instance_kwargs: dict | None = None,
             **kwargs,
         ):
-        if true_cost is None:
-            raise ValueError("StandardCosineEmbeddingLoss requires true_cost.")
+        if obs_cost is None:
+            raise ValueError("StandardCosineEmbeddingLoss requires obs_cost.")
         loss = self.per_sample(
             pred_cost,
-            true_cost=true_cost,
-            true_sol=true_sol,
-            true_obj=true_obj,
+            obs_cost=obs_cost,
+            obs_sol=obs_sol,
+            obs_obj=obs_obj,
             instance_kwargs=instance_kwargs,
             **kwargs,
         )
@@ -900,16 +956,16 @@ class CosineEmbeddingLoss(nn.Module):
     def per_sample(
             self,
             pred_cost: torch.Tensor,
-            true_cost: torch.Tensor | None = None,
-            true_sol: torch.Tensor | None = None,
-            true_obj: torch.Tensor | None = None,
+            obs_cost: torch.Tensor | None = None,
+            obs_sol: torch.Tensor | None = None,
+            obs_obj: torch.Tensor | None = None,
             instance_kwargs: dict | None = None,
             **kwargs,
         ):
-        if true_cost is None:
-            raise ValueError("StandardCosineEmbeddingLoss requires true_cost.")
+        if obs_cost is None:
+            raise ValueError("StandardCosineEmbeddingLoss requires obs_cost.")
         target = torch.ones(pred_cost.shape[0], device=pred_cost.device, dtype=pred_cost.dtype)
-        loss = self.cosine(pred_cost, true_cost, target)
+        loss = self.cosine(pred_cost, obs_cost, target)
         return _normalize_per_sample(loss)
     
 
@@ -955,9 +1011,9 @@ class PGDCALoss(nn.Module):
     def forward(
         self,
         pred_cost: torch.Tensor,   # f_theta(w) computed outside
-        true_cost: torch.Tensor | None = None,
-        true_sol: torch.Tensor | None = None,
-        true_obj: torch.Tensor | None = None,
+        obs_cost: torch.Tensor | None = None,
+        obs_sol: torch.Tensor | None = None,
+        obs_obj: torch.Tensor | None = None,
         instance_kwargs: dict | None = None,  # per-sample data defining the optimization instance (e.g., feasible region).
         *,
         X: torch.Tensor | None = None,           # inputs to model (needed for model0(X))
@@ -966,9 +1022,9 @@ class PGDCALoss(nn.Module):
     ):
         loss = self.per_sample(
             pred_cost,
-            true_cost=true_cost,
-            true_sol=true_sol,
-            true_obj=true_obj,
+            obs_cost=obs_cost,
+            obs_sol=obs_sol,
+            obs_obj=obs_obj,
             instance_kwargs=instance_kwargs,
             X=X,
             pred_model=pred_model,
@@ -979,9 +1035,9 @@ class PGDCALoss(nn.Module):
     def per_sample(
         self,
         pred_cost: torch.Tensor,   # f_theta(w) computed outside
-        true_cost: torch.Tensor | None = None,
-        true_sol: torch.Tensor | None = None,
-        true_obj: torch.Tensor | None = None,
+        obs_cost: torch.Tensor | None = None,
+        obs_sol: torch.Tensor | None = None,
+        obs_obj: torch.Tensor | None = None,
         instance_kwargs: dict | None = None,  # per-sample data defining the optimization instance (e.g., feasible region).
         *,
         X: torch.Tensor | None = None,           # inputs to model (needed for model0(X))
@@ -989,7 +1045,7 @@ class PGDCALoss(nn.Module):
         **kwargs,
     ):
         t = pred_cost
-        y = true_cost
+        y = obs_cost
         h = self.h
         if instance_kwargs is None:
             instance_kwargs = {}
@@ -1032,10 +1088,13 @@ class PGDCALoss(nn.Module):
 class CILOLoss(nn.Module):
     """
     CILO-style loss where the perturbation scale is chosen via CILO_lbda.
-    pred_cost is computed externally and passed in.
+    pred_cost is computed externally and passed in. This loss does not use
+    any frozen model; it relies on oracle evaluations at t and t + h y.
     """
+    DEFAULT_BETA_SCALE = 0.1
+
     def __init__(self, optmodel, 
-                    beta: float,
+                    beta: float | None = None,
                     reduction: str="mean", 
                     is_minimization: bool=True):
         super().__init__()
@@ -1047,20 +1106,20 @@ class CILOLoss(nn.Module):
     def forward(
         self,
         pred_cost: torch.Tensor,   # f_theta(w) computed outside
-        true_cost: torch.Tensor | None = None,
-        true_sol: torch.Tensor | None = None,
-        true_obj: torch.Tensor | None = None,
+        obs_cost: torch.Tensor | None = None,
+        obs_sol: torch.Tensor | None = None,
+        obs_obj: torch.Tensor | None = None,
         instance_kwargs: dict | None = None,  # per-sample data defining the optimization instance (e.g., feasible region).
         *,
-        X: torch.Tensor | None = None,           # inputs to model (needed for model0(X))
-        pred_model: nn.Module | None = None,     # live model (for snapshot updates)
+        X: torch.Tensor | None = None,           # unused for CILO; present for standardized signature
+        pred_model: nn.Module | None = None,     # unused for CILO; present for standardized signature
         **kwargs,
     ):
         loss = self.per_sample(
             pred_cost,
-            true_cost=true_cost,
-            true_sol=true_sol,
-            true_obj=true_obj,
+            obs_cost=obs_cost,
+            obs_sol=obs_sol,
+            obs_obj=obs_obj,
             instance_kwargs=instance_kwargs,
             X=X,
             pred_model=pred_model,
@@ -1071,19 +1130,29 @@ class CILOLoss(nn.Module):
     def per_sample(
         self,
         pred_cost: torch.Tensor,   # f_theta(w) computed outside
-        true_cost: torch.Tensor | None = None,
-        true_sol: torch.Tensor | None = None,
-        true_obj: torch.Tensor | None = None,
+        obs_cost: torch.Tensor | None = None,
+        obs_sol: torch.Tensor | None = None,
+        obs_obj: torch.Tensor | None = None,
         instance_kwargs: dict | None = None,  # per-sample data defining the optimization instance (e.g., feasible region).
         *,
-        X: torch.Tensor | None = None,           # inputs to model (needed for model0(X))
-        pred_model: nn.Module | None = None,     # live model (for snapshot updates)
+        X: torch.Tensor | None = None,           # unused for CILO; present for standardized signature
+        pred_model: nn.Module | None = None,     # unused for CILO; present for standardized signature
         **kwargs,
     ):
         t = pred_cost
-        y = true_cost
+        y = obs_cost
         if instance_kwargs is None:
             instance_kwargs = {}
+
+        if self.beta is None:
+            if obs_obj is None:
+                raise ValueError("CILOLoss requires obs_obj to infer beta when beta is None.")
+            mean_obj = torch.mean(obs_obj.float()).item()
+            offset = self.DEFAULT_BETA_SCALE * abs(mean_obj)
+            if self.is_minimization:
+                self.beta = mean_obj + offset
+            else:
+                self.beta = mean_obj - offset
 
         with torch.no_grad():
             h = CILO_lbda(t, y, self.optmodel, self.beta, kwargs=instance_kwargs)
@@ -1091,7 +1160,7 @@ class CILOLoss(nn.Module):
         t_plus = t + h * y
 
         # ----------------------------------------------------
-        # Compute reference term using frozen model and new model
+        # Compute objective terms at t and t + h y
         # ----------------------------------------------------
         with torch.no_grad():
             x_t, obj_t = self.optmodel(t, **instance_kwargs)
@@ -1099,10 +1168,12 @@ class CILOLoss(nn.Module):
             x_t_plus, obj_t_plus = self.optmodel(t_plus, **instance_kwargs)
             x_t_plus, obj_t_plus = x_t_plus.detach(), obj_t_plus.detach()
 
+        #VG thinks this is an error.  Believes it should be
+        #term1 = torch.sum(t_plus * x_t_plus, axis = 1)
         term1 = torch.sum(t * x_t_plus, axis = 1)
         # print("term 1: ", term1.mean().item(), torch.sum(x_t_plus, axis = 1).mean().item())
 
-        # Live term: gradients flow through t and through x_fn(t-hc) if x_fn supports autograd
+        # Live term: gradients flow through t and through x_fn(t) if x_fn supports autograd
         term2 = torch.sum(t * x_t, axis = 1)
         # print("term 2: ", term2.mean().item(), torch.sum(x_t_plus, axis = 1).mean().item())
 

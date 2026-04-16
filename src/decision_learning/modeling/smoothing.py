@@ -195,7 +195,7 @@ class RandomizedSmoothingWrapper(nn.Module):
     Wrap a base loss module with perturbation-based randomized smoothing.
 
     The base loss must implement a standardized signature:
-        per_sample(pred_cost, true_cost=None, true_sol=None, true_obj=None,
+        per_sample(pred_cost, obs_cost=None, obs_sol=None, obs_obj=None,
                   instance_kwargs=None, **kwargs) -> Tensor[B] or Tensor[B, 1]
         forward(...) -> reduced scalar or vector based on its reduction.
     """
@@ -232,18 +232,18 @@ class RandomizedSmoothingWrapper(nn.Module):
     def per_sample(
         self,
         pred_cost: torch.Tensor,
-        true_cost: torch.Tensor | None = None,
-        true_sol: torch.Tensor | None = None,
-        true_obj: torch.Tensor | None = None,
+        obs_cost: torch.Tensor | None = None,
+        obs_sol: torch.Tensor | None = None,
+        obs_obj: torch.Tensor | None = None,
         instance_kwargs: dict | None = None,
         **kwargs,
     ):
         # Pass through all standardized arguments and any extra kwargs so the
         # base loss can decide what it needs.
         loss_kwargs = {
-            "true_cost": true_cost,
-            "true_sol": true_sol,
-            "true_obj": true_obj,
+            "obs_cost": obs_cost,
+            "obs_sol": obs_sol,
+            "obs_obj": obs_obj,
             "instance_kwargs": instance_kwargs,
             **kwargs,
         }
@@ -273,18 +273,18 @@ class RandomizedSmoothingWrapper(nn.Module):
     def forward(
         self,
         pred_cost: torch.Tensor,
-        true_cost: torch.Tensor | None = None,
-        true_sol: torch.Tensor | None = None,
-        true_obj: torch.Tensor | None = None,
+        obs_cost: torch.Tensor | None = None,
+        obs_sol: torch.Tensor | None = None,
+        obs_obj: torch.Tensor | None = None,
         instance_kwargs: dict | None = None,
         **kwargs,
     ):
         # Mirror standard loss module behavior: per-sample then reduction.
         loss = self.per_sample(
             pred_cost,
-            true_cost=true_cost,
-            true_sol=true_sol,
-            true_obj=true_obj,
+            obs_cost=obs_cost,
+            obs_sol=obs_sol,
+            obs_obj=obs_obj,
             instance_kwargs=instance_kwargs,
             **kwargs,
         )

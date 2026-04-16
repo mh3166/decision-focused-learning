@@ -71,9 +71,11 @@ def _run_pipeline(loss_specs_factory, seed: int = 123, print_metrics: bool = Fal
     loss_specs = loss_specs_factory(optmodel)
     metrics, trained_models = run_loss_experiments(
         X_train=train_data['feat'],
-        true_cost_train=train_data['cost'],
+        obs_cost_train=train_data['cost'],
+        cond_exp_cost_train=train_data['cond_exp_cost'],
         X_test=test_data['feat'],
-        true_cost_test=test_data['cost_true'],
+        obs_cost_test=test_data['cond_exp_cost'],
+        cond_exp_cost_test=test_data['cond_exp_cost'],
         pred_model=pred_model,
         opt_oracle=optmodel,
         train_instance_kwargs=train_instance_kwargs,
@@ -194,9 +196,11 @@ def test_pipeline_smoke_user_defined_smoothed_pg():
 
     metrics, trained_models = run_loss_experiments(
         X_train=train_data['feat'],
-        true_cost_train=train_data['cost'],
+        obs_cost_train=train_data['cost'],
+        cond_exp_cost_train=train_data['cond_exp_cost'],
         X_test=test_data['feat'],
-        true_cost_test=test_data['cost_true'],
+        obs_cost_test=test_data['cond_exp_cost'],
+        cond_exp_cost_test=test_data['cond_exp_cost'],
         pred_model=pred_model,
         opt_oracle=optmodel,
         train_instance_kwargs=train_instance_kwargs,

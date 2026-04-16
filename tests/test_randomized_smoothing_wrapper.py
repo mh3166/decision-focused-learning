@@ -9,11 +9,11 @@ class ToyLoss(torch.nn.Module):
         super().__init__()
         self.reduction = reduction
 
-    def per_sample(self, pred_cost, true_cost=None, **kw):
-        return (pred_cost * true_cost).sum(dim=1)
+    def per_sample(self, pred_cost, obs_cost=None, **kw):
+        return (pred_cost * obs_cost).sum(dim=1)
 
-    def forward(self, pred_cost, true_cost=None, **kw):
-        ps = self.per_sample(pred_cost, true_cost=true_cost, **kw)
+    def forward(self, pred_cost, obs_cost=None, **kw):
+        ps = self.per_sample(pred_cost, obs_cost=obs_cost, **kw)
         return ps.mean()
 
 
@@ -21,7 +21,7 @@ def test_randomized_smoothing_wrapper_contract_and_backward_toy_loss():
     torch.manual_seed(0)
     B, d = 5, 4
     pred = torch.randn(B, d, requires_grad=True)
-    true_cost = torch.randn(B, d)
+    obs_cost = torch.randn(B, d)
 
     base = ToyLoss()
     wrapper = RandomizedSmoothingWrapper(
@@ -36,9 +36,9 @@ def test_randomized_smoothing_wrapper_contract_and_backward_toy_loss():
 
     loss = wrapper(
         pred_cost=pred,
-        true_cost=true_cost,
-        true_sol=None,
-        true_obj=None,
+        obs_cost=obs_cost,
+        obs_sol=None,
+        obs_obj=None,
         instance_kwargs=None,
     )
 
@@ -56,7 +56,7 @@ def test_randomized_smoothing_wrapper_uses_per_sample_reduction_none():
     torch.manual_seed(0)
     B, d = 4, 3
     pred = torch.randn(B, d, requires_grad=True)
-    true_cost = torch.randn(B, d)
+    obs_cost = torch.randn(B, d)
 
     base = ToyLoss()
     wrapper = RandomizedSmoothingWrapper(
@@ -71,9 +71,9 @@ def test_randomized_smoothing_wrapper_uses_per_sample_reduction_none():
 
     out = wrapper(
         pred_cost=pred,
-        true_cost=true_cost,
-        true_sol=None,
-        true_obj=None,
+        obs_cost=obs_cost,
+        obs_sol=None,
+        obs_obj=None,
         instance_kwargs=None,
     )
 
@@ -101,11 +101,11 @@ def test_randomized_smoothing_wrapper_with_pg_loss():
     torch.manual_seed(0)
     B, d = 4, 3
     pred = torch.randn(B, d, requires_grad=True)
-    true_cost = torch.tensor(
+    obs_cost = torch.tensor(
         [[-1.0, 2.0, -0.5], [0.5, -1.0, 1.5], [-2.0, 0.1, 0.2], [1.0, -0.2, -0.3]],
         dtype=torch.float32,
     )
-    instance_kwargs = {"b": torch.ones_like(true_cost)}
+    instance_kwargs = {"b": torch.ones_like(obs_cost)}
 
     base = PGLoss(
         optmodel=_box_oracle_with_kwargs,
@@ -126,9 +126,9 @@ def test_randomized_smoothing_wrapper_with_pg_loss():
 
     loss = wrapper(
         pred_cost=pred,
-        true_cost=true_cost,
-        true_sol=None,
-        true_obj=None,
+        obs_cost=obs_cost,
+        obs_sol=None,
+        obs_obj=None,
         instance_kwargs=instance_kwargs,
     )
 
@@ -146,7 +146,7 @@ def test_randomized_smoothing_wrapper_antithetic_path():
     torch.manual_seed(0)
     B, d = 4, 3
     pred = torch.randn(B, d, requires_grad=True)
-    true_cost = torch.randn(B, d)
+    obs_cost = torch.randn(B, d)
 
     base = ToyLoss()
     wrapper = RandomizedSmoothingWrapper(
@@ -159,7 +159,7 @@ def test_randomized_smoothing_wrapper_antithetic_path():
         reduction="mean",
     )
 
-    loss = wrapper(pred_cost=pred, true_cost=true_cost)
+    loss = wrapper(pred_cost=pred, obs_cost=obs_cost)
     assert torch.is_tensor(loss)
     assert loss.ndim == 0
     assert torch.isfinite(loss).all()
@@ -174,7 +174,7 @@ def test_randomized_smoothing_wrapper_control_variate_path():
     torch.manual_seed(0)
     B, d = 4, 3
     pred = torch.randn(B, d, requires_grad=True)
-    true_cost = torch.randn(B, d)
+    obs_cost = torch.randn(B, d)
 
     base = ToyLoss()
     wrapper = RandomizedSmoothingWrapper(
@@ -187,7 +187,7 @@ def test_randomized_smoothing_wrapper_control_variate_path():
         reduction="mean",
     )
 
-    loss = wrapper(pred_cost=pred, true_cost=true_cost)
+    loss = wrapper(pred_cost=pred, obs_cost=obs_cost)
     assert torch.is_tensor(loss)
     assert loss.ndim == 0
     assert torch.isfinite(loss).all()
@@ -202,14 +202,14 @@ def test_randomized_smoothing_wrapper_accepts_column_loss():
     torch.manual_seed(0)
     B, d = 4, 3
     pred = torch.randn(B, d, requires_grad=True)
-    true_cost = torch.randn(B, d)
+    obs_cost = torch.randn(B, d)
 
     class ColumnToyLoss(torch.nn.Module):
-        def per_sample(self, pred_cost, true_cost=None, **kw):
-            return (pred_cost * true_cost).sum(dim=1, keepdim=True)
+        def per_sample(self, pred_cost, obs_cost=None, **kw):
+            return (pred_cost * obs_cost).sum(dim=1, keepdim=True)
 
-        def forward(self, pred_cost, true_cost=None, **kw):
-            return self.per_sample(pred_cost, true_cost=true_cost, **kw).mean()
+        def forward(self, pred_cost, obs_cost=None, **kw):
+            return self.per_sample(pred_cost, obs_cost=obs_cost, **kw).mean()
 
     base = ColumnToyLoss()
     wrapper = RandomizedSmoothingWrapper(
@@ -222,6 +222,6 @@ def test_randomized_smoothing_wrapper_accepts_column_loss():
         reduction="none",
     )
 
-    out = wrapper(pred_cost=pred, true_cost=true_cost)
+    out = wrapper(pred_cost=pred, obs_cost=obs_cost)
     assert out.shape == (B,)
     assert torch.isfinite(out).all()

@@ -22,9 +22,9 @@ class NeedsExtraFieldLoss(torch.nn.Module):
     def forward(
         self,
         pred_cost,
-        true_cost=None,
-        true_sol=None,
-        true_obj=None,
+        obs_cost=None,
+        obs_sol=None,
+        obs_obj=None,
         instance_kwargs=None,
         *,
         extra,
@@ -42,17 +42,17 @@ def test_pipeline_extra_batch_data_is_used():
 
     X_train = rng.standard_normal((n_train, d_in)).astype(np.float32)
     X_test = rng.standard_normal((n_test, d_in)).astype(np.float32)
-    true_cost_train = rng.standard_normal((n_train, d_cost)).astype(np.float32)
-    true_cost_test = rng.standard_normal((n_test, d_cost)).astype(np.float32)
+    obs_cost_train = rng.standard_normal((n_train, d_cost)).astype(np.float32)
+    obs_cost_test = rng.standard_normal((n_test, d_cost)).astype(np.float32)
 
     pred_model = LinearRegression(input_dim=d_in, output_dim=d_cost)
     extra = np.ones((n_train,), dtype=np.float32)
 
     metrics, _ = run_loss_experiments(
         X_train=X_train,
-        true_cost_train=true_cost_train,
+        obs_cost_train=obs_cost_train,
         X_test=X_test,
-        true_cost_test=true_cost_test,
+        obs_cost_test=obs_cost_test,
         pred_model=pred_model,
         opt_oracle=_dummy_optmodel,
         train_instance_kwargs={},
@@ -89,17 +89,17 @@ def test_pipeline_extra_batch_data_collision():
 
     X_train = rng.standard_normal((n_train, d_in)).astype(np.float32)
     X_test = rng.standard_normal((n_test, d_in)).astype(np.float32)
-    true_cost_train = rng.standard_normal((n_train, d_cost)).astype(np.float32)
-    true_cost_test = rng.standard_normal((n_test, d_cost)).astype(np.float32)
+    obs_cost_train = rng.standard_normal((n_train, d_cost)).astype(np.float32)
+    obs_cost_test = rng.standard_normal((n_test, d_cost)).astype(np.float32)
 
     pred_model = LinearRegression(input_dim=d_in, output_dim=d_cost)
 
     try:
         run_loss_experiments(
             X_train=X_train,
-            true_cost_train=true_cost_train,
+            obs_cost_train=obs_cost_train,
             X_test=X_test,
-            true_cost_test=true_cost_test,
+            obs_cost_test=obs_cost_test,
             pred_model=pred_model,
             opt_oracle=_dummy_optmodel,
             train_instance_kwargs={},

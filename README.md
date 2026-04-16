@@ -76,6 +76,28 @@ spec = LossSpec(
 )
 ```
 
+## Benchmark oracle contract
+Benchmarks supply an `opt_oracle` that is invoked via `handle_solver` and used to compute optimal
+solutions/objectives. The oracle must support both batched and per-sample calls.
+
+Required signature:
+- Batched mode (when `solver_batch_solve=True`):
+  `opt_oracle(costs, **instance_kwargs) -> (sol, obj)`
+- Single-sample mode (when `solver_batch_solve=False`):
+  `opt_oracle(costs_i, **instance_kwargs_i) -> (sol_i, obj_i)`
+
+Input expectations:
+- `costs` is shaped `(B, d)` in batched mode; `costs_i` is `(d,)` in single mode.
+- `instance_kwargs` contains per-sample arrays/tensors with first dimension `B`.
+
+Output expectations:
+- `sol` aligns with `costs` in shape: `(B, d)` or `(d,)`.
+- `obj` is the per-sample objective: shape `(B,)` or `(B, 1)` in batched mode, scalar in single mode.
+
+Type tolerance:
+- `handle_solver` may detach tensors and convert them to numpy before calling the oracle, so the
+  oracle must accept numpy arrays (torch tensors are also fine).
+
 ## run_loss_experiments with LossSpec
 `run_loss_experiments` now accepts a list of `LossSpec` objects directly. You can provide a single
 loss or multiple losses, and optionally pass `hyper_grid` for sweeps.
